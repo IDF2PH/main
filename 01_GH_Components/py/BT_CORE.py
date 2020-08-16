@@ -22,7 +22,7 @@
 """
 Core Classes and Definitiions for IDF2PHPP Exporter. You must run this component before anything else will work. If you are having trouble when opening a GH file for the first time, try hitting 'Recompute'.
 -
-EM Augsut 15, 2020
+EM Augsut 16, 2020
 """
 
 print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
@@ -37,7 +37,7 @@ print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com>
 
 ghenv.Component.Name = "BT_CORE"
 ghenv.Component.NickName = "IDF2PHPP"
-ghenv.Component.Message = 'AUG_15_2020'
+ghenv.Component.Message = 'AUG_16_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "00 | Core"
@@ -3302,6 +3302,19 @@ class PHPP_grnd_FloorElement():
         totalLen, psiXlen (tuple): The total length of all curves in the list (m) and the total Psi*Len value (W/m)
         """
         
+        def getLengthIfNumber(_in, _psi):
+            try:
+                length = float(_in)
+            except:
+                length = None
+            
+            try:
+                psi = float(_psi)
+            except:
+                psi = 0.05
+        
+            return length, psi
+        
         if _perimCrvs == None:
             return 0, 0, None
         
@@ -3312,9 +3325,16 @@ class PHPP_grnd_FloorElement():
         if len(_perimCrvs)>0:
             sc.doc = Rhino.RhinoDoc.ActiveDoc
             for crvGUID in _perimCrvs:
+                
+                # See if its just Numbers passed in. If so, use them and break out
+                length, crvPsiValue = getLengthIfNumber(crvGUID, _UDperimPsi)
+                if length and crvPsiValue:
+                    totalLen += length
+                    psiXlen += (length * crvPsiValue)
+                    continue
+                
                 isCrvGeom = rs.coercecurve(crvGUID)
                 isBrepGeom = rs.coercebrep(crvGUID)
-                
                 
                 if isCrvGeom:
                     crvLen = ghc.Length(isCrvGeom)

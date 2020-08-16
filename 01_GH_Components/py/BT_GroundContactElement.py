@@ -2,7 +2,7 @@
 # IDF2PHPP: A Plugin for exporting an EnergyPlus IDF file to the Passive House Planning Package (PHPP). Created by blgdtyp, llc
 # 
 # This component is part of IDF2PHPP.
-#  
+# 
 # Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
 # IDF2PHPP is free software; you can redistribute it and/or modify 
 # it under the terms of the GNU General Public License as published 
@@ -23,7 +23,7 @@
 Create a ground contact 'Floor Element' for use in writing to the 'Ground' worksheet. By Default, this will just create a single floor element. You can input up to 3 of these (as a flattened list) into the 'grndFloorElements_' input on the 'Create Excel Obj - Geom' component. 
 However, if you also pass in the Honeybee Zones (into _HBZones) this will try and sort out the right ground element from the HB Geometry and parameters for each zone input. This info will be automatcally passed through to the Excel writer. If you have a simple situation, you can pass all of the Honeybee zones in at once, but if you need to set detailed parameters for multiple different floor types, first explode the Honeybee Zone object and then apply one of these components to each zone one at a time. Merge the zones back together before passing along.
 -
-EM August 15, 2020
+EM August 16, 2020
     Args:
         _HBZones: (list) <Optional> The Honeybee Zone Objects. 
         _type: (string): Input a floor element 'type'. Choose either:
@@ -40,7 +40,7 @@ EM August 15, 2020
 
 ghenv.Component.Name = "BT_GroundContactElement"
 ghenv.Component.NickName = "Create Floor Element"
-ghenv.Component.Message = 'AUG_15_2020'
+ghenv.Component.Message = 'AUG_16_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "01 | Model"
@@ -52,6 +52,7 @@ from contextlib import contextmanager
 import ghpythonlib.components as ghc
 import Grasshopper.Kernel as ghK
 import json
+import re
 
 # Classes and Defs
 preview = sc.sticky['Preview']
@@ -63,9 +64,55 @@ PHPP_grnd_SuspendedFloor = sc.sticky['PHPP_grnd_SuspendedFloor']
 hb_hive = sc.sticky["honeybee_Hive"]()
 HBZoneObjects = hb_hive.callFromHoneybeeHive(_HBZones)
 
-def cleanInputs(_in, _nm, _default):
+def convertUnits(_inputString, _outputUnit):
+    schema = {
+                'M':{'SI': 1, 'M':1, 'CM':0.01, 'MM':0.001, 'FT':0.3048, "'":0.3048, 'IN':0.0254, '"':0.0254},
+                'W/M2K':{'SI':1, 'IP':5.678264134},
+                'W/MK':{'SI':1, 'IP':1.730734908},
+                'M3':{'SI':1, 'FT3':0.028316847},
+              }
+    
+    inputValue = _inputString
+    
+    try:
+        # Pull out just the decimal numeric characters, if any
+        for each in re.split(r'[^\d\.]', _inputString):
+            if len(each)>0:
+                inputValue = each
+                break # will only take the first number found, 'ft3' doesn't work otherwise
+        
+        inputUnit = findInputStringUnit(_inputString)
+        conversionFactor = schema.get(_outputUnit, {}).get(inputUnit, 1)
+        return float(inputValue) * float(conversionFactor)
+    except:
+        return inputValue
+
+def findInputStringUnit(_in):
+    evalString = str(_in).upper()
+    
+    if 'FT' in evalString or "'" in evalString:
+        inputUnit = 'FT'
+    elif 'IN' in evalString or '"' in evalString:
+        inputUnit = 'IN'
+    elif 'MM' in evalString:
+        inputUnit = 'MM'
+    elif 'CM' in evalString:
+        inputUnit = 'CM'
+    elif 'M' in evalString and 'MM' not in evalString:
+        inputUnit = 'M'
+    elif 'IP' in evalString:
+        inputUnit = 'IP'
+    elif 'FT3' in evalString:
+        inputUnit = 'FT3'
+    else:
+        inputUnit = 'SI'
+    
+    return inputUnit
+
+def cleanInputs(_in, _nm, _default, _units=None):
     # Apply defaults if the inputs are Nones
     out = _in if _in != None else _default
+    out = convertUnits(str(out), _units)
     
     # Check that output can be float
     try:
@@ -214,11 +261,24 @@ if '1' in str(_type):
                 _perimInsulOrientation = each
     
     # Get user inputs, set defaults
-    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None)
-    depth = cleanInputs(_perimInsulWidthOrDepth, "depth", 1.0)
-    thickness = cleanInputs(_perimInsulThickness, "thickness", 0.101)
-    conductivity = cleanInputs(_perimInsulConductivity, "lambda", 0.04)
+    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None, 'W/MK')
+    depth = cleanInputs(_perimInsulWidthOrDepth, "depth", 1.0, 'M')
+    thickness = cleanInputs(_perimInsulThickness, "thickness", 0.101, 'M')
+    conductivity = cleanInputs(_perimInsulConductivity, "lambda", 0.04, 'W/MK')
     orientation = cleanInputs(_perimInsulOrientation, "orientation", 'Vertical')
+    
+    # Sort out Perim Curve Inputs
+    perimCrvs = []
+    for i, crv in enumerate(_exposedPerimCrvs):
+        try:
+            perimCrvs.append( float(crv) )
+        except:
+            try:
+                rhinoGuid = ghenv.Component.Params.Input[3].VolatileData[0][i].ReferenceID.ToString()
+                perimCrvs.append( rhinoGuid )
+            except:
+                warning = 'Please input only curves, surfaces or numbers (list) for _exposedPerimCrvs'
+                ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, warning)
     
     # Build Floor Elements for any HB Zones input
     # See if any of the Zones include at least one SlabOnGrade surface?
@@ -232,7 +292,7 @@ if '1' in str(_type):
                 break
         
         # Create a new Floor Element & Update the with the HB Zone Params
-        floorElement_ = PHPP_grnd_SlabOnGrade( zone.name, _floorSurfaces, _exposedPerimCrvs, perimPsi, depth, thickness, conductivity, orientation)
+        floorElement_ = PHPP_grnd_SlabOnGrade( zone.name, _floorSurfaces, perimCrvs, perimPsi, depth, thickness, conductivity, orientation)
         updateHBFloorElement(thisZoneincludesSlabOnGrade, _floorSurfaces, floorElement_, zone, 'SlabOnGrade')
         
         for warning in floorElement_.getWarnings():
@@ -259,9 +319,22 @@ elif '2' in str(_type):
                 _wallBelowGrade_Uvalue = each
     
     # Clean the Inputs and check formats, types
-    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None)
-    wallHeight_BG = cleanInputs(_wallBelowGrade_height, "height_bg", 1.0)
-    wallU_BG = cleanInputs(_wallBelowGrade_Uvalue, "Uvalue_bg", 1.0)
+    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None, 'W/MK')
+    wallHeight_BG = cleanInputs(_wallBelowGrade_height, "height_bg", 1.0, 'M')
+    wallU_BG = cleanInputs(_wallBelowGrade_Uvalue, "Uvalue_bg", 1.0, 'W/M2K')
+    
+    # Sort out Perim Curve Inputs
+    perimCrvs = []
+    for i, crv in enumerate(_exposedPerimCrvs):
+        try:
+            perimCrvs.append( float(crv) )
+        except:
+            try:
+                rhinoGuid = ghenv.Component.Params.Input[3].VolatileData[0][i].ReferenceID.ToString()
+                perimCrvs.append( rhinoGuid )
+            except:
+                warning = 'Please input only curves, surfaces or numbers (list) for _exposedPerimCrvs'
+                ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, warning)
     
     # See if any of the Zone includes at least one UndergroundSlab surface?
     anyZoneincludesUndergroundSlab = False
@@ -274,7 +347,7 @@ elif '2' in str(_type):
                 break
                 
         # Create a new Floor Element & Update the with the HB Zone Params
-        floorElement_ = PHPP_grnd_HeatedBasement( zone.name, _floorSurfaces,  _exposedPerimCrvs, perimPsi, wallHeight_BG, wallU_BG )
+        floorElement_ = PHPP_grnd_HeatedBasement( zone.name, _floorSurfaces,  perimCrvs, perimPsi, wallHeight_BG, wallU_BG )
         updateHBFloorElement(thisZoneincludesUndergroundSlab, _floorSurfaces, floorElement_, zone, 'UndergroundSlab')
         
         for warning in floorElement_.getWarnings():
@@ -317,14 +390,27 @@ elif '3' in str(_type):
                 _basementVolume = each
     
     # Clean User Inputs
-    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None)
-    wallHeight_AG = cleanInputs(_wallAboveGrade_height, "height_ag", 1.0)
-    wallU_AG = cleanInputs(_wallAboveGrade_Uvalue, "Uvalue_ag", 1.0)
-    wallHeight_BG = cleanInputs(_wallBelowGrade_height, "height_bg", 1.0)
-    wallU_BG = cleanInputs(_wallBelowGrade_Uvalue, "Uvalue_bg", 1.0)
-    floorU = cleanInputs(_basementFloor_Uvalue, "Uvalue", 1.0)
+    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None, 'W/MK')
+    wallHeight_AG = cleanInputs(_wallAboveGrade_height, "height_ag", 1.0, 'M')
+    wallU_AG = cleanInputs(_wallAboveGrade_Uvalue, "Uvalue_ag", 1.0, 'W/M2K')
+    wallHeight_BG = cleanInputs(_wallBelowGrade_height, "height_bg", 1.0, 'M')
+    wallU_BG = cleanInputs(_wallBelowGrade_Uvalue, "Uvalue_bg", 1.0, 'W/M2K')
+    floorU = cleanInputs(_basementFloor_Uvalue, "Uvalue", 1.0, 'W/M2K')
     ach = cleanInputs(_basementAirChange, "ACH", 0.2)
-    vol = cleanInputs(_basementVolume, "Volume", 1.0)
+    vol = cleanInputs(_basementVolume, "Volume", 1.0, 'M3')
+    
+    # Sort out Perim Curve Inputs
+    perimCrvs = []
+    for i, crv in enumerate(_exposedPerimCrvs):
+        try:
+            perimCrvs.append( float(crv) )
+        except:
+            try:
+                rhinoGuid = ghenv.Component.Params.Input[3].VolatileData[0][i].ReferenceID.ToString()
+                perimCrvs.append( rhinoGuid )
+            except:
+                warning = 'Please input only curves, surfaces or numbers (list) for _exposedPerimCrvs'
+                ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, warning)
     
     # See if any of the Zone includes at least one ExposedFloor surface?
     anyZoneincludesSuspendedFloor = False
@@ -337,7 +423,7 @@ elif '3' in str(_type):
                 break
         
         # Create a new Floor Element & Update the with the HB Zone Params
-        floorElement_ = PHPP_grnd_UnheatedBasement( zone.name, _floorSurfaces, _exposedPerimCrvs, perimPsi, wallHeight_AG, wallU_AG, wallHeight_BG, wallU_BG, floorU, ach, vol )
+        floorElement_ = PHPP_grnd_UnheatedBasement( zone.name, _floorSurfaces, perimCrvs, perimPsi, wallHeight_AG, wallU_AG, wallHeight_BG, wallU_BG, floorU, ach, vol )
         updateHBFloorElement(thisZoneincludesSuspendedFloor, _floorSurfaces, floorElement_, zone, 'ExposedFloor')
         
         for warning in floorElement_.getWarnings():
@@ -376,13 +462,26 @@ elif '4' in str(_type):
                 _windShieldFactor = each
     
     # Clean user inputs
-    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None)
-    wallHeight = cleanInputs(_wallCrawlSpace_height, "height", 1.0)
-    wallU = cleanInputs(_wallCrawlSpace_Uvalue, "Uvalue", 1.0)
-    crawlspaceU = cleanInputs(_crawlSpace_UValue, "Ucrawl", 5.9)
-    ventOpening = cleanInputs(_ventilationOpeningArea, "ventOpening", 1.0)
+    perimPsi = cleanInputs(_exposedPerimPsiValue, 'psi', None, 'W/MK')
+    wallHeight = cleanInputs(_wallCrawlSpace_height, "height", 1.0, 'M')
+    wallU = cleanInputs(_wallCrawlSpace_Uvalue, "Uvalue", 1.0, 'W/M2K')
+    crawlspaceU = cleanInputs(_crawlSpace_UValue, "Ucrawl", 5.9, 'W/M2K')
+    ventOpening = cleanInputs(_ventilationOpeningArea, "ventOpening", 1.0, 'M2')
     windVelocity = cleanInputs(_windVelocityAt10m, "velocity", 4.0)
     windFactor = cleanInputs(_windShieldFactor, "windFactor", 0.05)
+    
+    # Sort out Perim Curve Inputs
+    perimCrvs = []
+    for i, crv in enumerate(_exposedPerimCrvs):
+        try:
+            perimCrvs.append( float(crv) )
+        except:
+            try:
+                rhinoGuid = ghenv.Component.Params.Input[3].VolatileData[0][i].ReferenceID.ToString()
+                perimCrvs.append( rhinoGuid )
+            except:
+                warning = 'Please input only curves, surfaces or numbers (list) for _exposedPerimCrvs'
+                ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, warning)
     
     # See if any of the Zone includes at least one ExposedFloor surface?
     anyZoneincludesSuspendedFloor = False
@@ -395,7 +494,7 @@ elif '4' in str(_type):
                 break
         
         # Create a new Floor Element & Update the with the HB Zone Params
-        floorElement_ = PHPP_grnd_SuspendedFloor( zone.name, _floorSurfaces, _exposedPerimCrvs, perimPsi, wallHeight, wallU, crawlspaceU, ventOpening, windVelocity, windFactor)
+        floorElement_ = PHPP_grnd_SuspendedFloor( zone.name, _floorSurfaces, perimCrvs, perimPsi, wallHeight, wallU, crawlspaceU, ventOpening, windVelocity, windFactor)
         updateHBFloorElement(thisZoneincludesSuspendedFloor, _floorSurfaces, floorElement_, zone, 'ExposedFloor')
         
         for warning in floorElement_.getWarnings():
