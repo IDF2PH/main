@@ -26,7 +26,7 @@ to enter values for Frame Type, Glass Type and Install condition (0|1) for the e
 The Frame and Glass Type values come from a PHPP-Style Excel file with a 'Components' worksheet to read from
 Frames will read from 'Components[IL15:JC113]'. Glazing will read from 'Components[ID15:IG113]'
 -
-EM July. 19, 2020
+EM August 16, 2020
 """
 
 # Reference:
@@ -38,6 +38,7 @@ import Rhino
 import Eto
 import json
 from collections import defaultdict
+import re
 
 __commandname__ = "PHPP_SetWindowProperties"
 
@@ -157,6 +158,45 @@ class Model:
             if str(_dialogVals.get('Right')) != 'None': rs.SetUserText(eachObj, 'InstallRight', str(_dialogVals.get('Right')))
             if str(_dialogVals.get('Bottom')) != 'None': rs.SetUserText(eachObj, 'InstallBottom', str(_dialogVals.get('Bottom')))
             if str(_dialogVals.get('Top')) != 'None': rs.SetUserText(eachObj, 'InstallTop', str(_dialogVals.get('Top')))
+    
+    def convertValToMeters(self, _val, _unit):
+        schema = {'M':1, 'CM':0.01, 'MM':0.001, 'IN':0.0254, 'FT':0.3048}
+        factor = schema.get(_unit, 'M')
+        try:
+            return float(_val) * float(factor)
+        except:
+            return _val
+    
+    def _determineInputUnits(self, _inputString):
+        # If its just a number, its in meters so just pass it along
+        # otherwise, pull out the numerical values and the non-numeric values
+        # And figure out the units in the str, if any
+        
+        outputVal = _inputString
+        evalString = str(_inputString).upper()
+        
+        try:
+            outputVal = float(_inputString)
+            outputUnit = 'M'
+        except:
+            if 'FT' in evalString or "'" in evalString:
+                outputUnit = 'FT'
+            elif 'IN' in evalString or '"' in evalString:
+                outputUnit = 'IN'
+            elif 'MM' in evalString:
+                outputUnit = 'MM'
+            elif 'CM' in evalString:
+                outputUnit = 'CM'
+            else:
+                outputUnit = 'M'
+            
+            # Pull out just the decimal numeric characters, if any
+            for each in re.split(r'[^\d\.]', _inputString):
+                if len(each)>0:
+                    outputVal = each
+            
+        return (outputVal, outputUnit)
+
 
 class View(Eto.Forms.Dialog):
     def __init__(self, controller):
@@ -176,7 +216,7 @@ class View(Eto.Forms.Dialog):
                 {'name': 'glass', 'label':'Select Glazing:', 'input':self._createComboBox(glazingLib, exgGlaz)},
                 {'name': 'variant', 'label':'Variant Type:', 'input':self._createComboBox(variantTypes, exgPsi)},
                 {'name': 'psiInst', 'label':'Psi-Install Type:', 'input':self._createComboBox(psiLib, exgVariant)},
-                {'name': 'instDepth', 'label':'Win Install Depth (m):', 'input':Eto.Forms.TextBox( Text = str(exgInstDepth))}
+                {'name': 'instDepth', 'label':'Win Install Depth (m):', 'input':  self._createTextBox(exgInstDepth) }
                 ]
             },
             {'groupName': 'Set the Installed Edges',
@@ -192,12 +232,22 @@ class View(Eto.Forms.Dialog):
         self._addContentToWindow()
         self._addOKCancelButtons()
     
+    def _createTextBox(self, _txt):
+        txtBox = Eto.Forms.TextBox( Text = str(_txt)) 
+        
+        # Add an input handler
+        txtBox.LostFocus += self.controller.evalInput
+        
+        return txtBox
+    
     def _createComboBox(self, _data, _exgValue):
         comboBoxObj = Eto.Forms.ComboBox()
         comboBoxObj.DataStore = _data
         comboBoxObj.DataStore.Insert(0, _exgValue) # For the default
         comboBoxObj.SelectedIndex = 0
         comboBoxObj.Size = Eto.Drawing.Size(400, -1) # This is what sets Col 2 Width
+        
+
         
         return comboBoxObj
     
@@ -262,6 +312,7 @@ class View(Eto.Forms.Dialog):
         
         return dialogValues
 
+
 class Controller:
     def __init__(self, selObjs):
         self.model = Model(selObjs)
@@ -290,6 +341,21 @@ class Controller:
         print('Canceled...')
         self.Update = False
         self.view.Close()
+    
+    def evalInput(self, sender, e):
+        # Determine is the user has input any 'units' such as 'ft' or 'in'
+        # If so, do the conversion to meters and reset the TextBox value
+        
+        #print('-'*20)
+        #for attr in dir(sender):
+            #print attr, '::', getattr(sender, attr)
+        
+        if 'Text' in dir(sender):
+            txtBoxValue = getattr(sender, 'Text')
+            val, unit = self.model._determineInputUnits( txtBoxValue )
+            newVal = self.model.convertValToMeters(val, unit)
+            sender.Text = str(newVal)
+
 
 def RunCommand( is_interactive ):
     print "Applying PHPP Window Types to Selected Object(s)"

@@ -26,7 +26,7 @@ such as windows, frames, glasss. This uses a Model-View-Controller configuration
 mostly just cus' I wanted to test that out. Might be way overkill for something like
 this... but was fun to build.
 -
-EM August 12 2020
+EM August 16, 2020
 """
 
 import rhinoscriptsyntax as rs
@@ -49,6 +49,12 @@ import re
 __commandname__ = "PHPP_EditTBLibrary"
 
 class Model:
+    
+    unitsConversionSchema = {
+        'W/M2K': {'SI':1, 'IP':5.678264134},
+        'M': {'SI': 1, 'M':1, 'CM':0.01, 'MM':0.001, 'FT':0.3048, "'":0.3048, 'IN':0.0254, '"':0.0254},
+        'W/MK': {'SI':1, 'IP':1.730734908}
+        }
     
     def __init__(self, selObjs):
         self.selectedObjects = selObjs
@@ -252,6 +258,64 @@ class Model:
                         "ID": int(i+1)
                         }
                 rs.SetDocumentUserText("PHPP_lib_PsiInstall_{:02d}".format(i+1), json.dumps(newTB) )
+    
+    def _determineInputUnits(self, _inputString):
+        # If its just a number, its SI so just pass it along
+        # otherwise, pull out the numerical values and the non-numeric values
+        # And figure out the units in the str, if any
+        
+        value = _inputString
+        evalString = str(_inputString).upper()
+        
+        try:
+            value = float(_inputString)
+            inputUnit = 'SI'
+        except:
+            if 'FT' in evalString or "'" in evalString:
+                inputUnit = 'FT'
+            elif 'IN' in evalString or '"' in evalString:
+                inputUnit = 'IN'
+            elif 'MM' in evalString:
+                inputUnit = 'MM'
+            elif 'CM' in evalString:
+                inputUnit = 'CM'
+            elif 'M' in evalString and 'MM' not in evalString:
+                inputUnit = 'M'
+            elif 'IP' in evalString:
+                inputUnit = 'IP'
+            else:
+                inputUnit = 'SI'
+            
+            # Pull out just the decimal numeric characters, if any
+            for each in re.split(r'[^\d\.]', _inputString):
+                if len(each)>0:
+                    value = each
+            
+        return (value, inputUnit)
+    
+    def convertToOutputUnits(self, _inputVal, _inputUnit, _displayColumnUnit):
+        """ Converts the user values to the right SI values for the column being edited """
+        
+        outputUnitFactors = self.unitsConversionSchema.get(str(_displayColumnUnit).upper(), {})
+        conversionFactor = outputUnitFactors.get(_inputUnit, 1)
+        
+        try:
+            return float(_inputVal) * float(conversionFactor)
+        except:
+            return _inputVal
+    
+    def determineDisplayVal(self, _inputVal, _displayColumnUnit):
+        """ Decide how to show the value in the cell """
+        
+        try:
+            val, inputUnit = self._determineInputUnits(_inputVal)
+            displayValue = self.convertToOutputUnits(val, inputUnit, _displayColumnUnit)
+            
+            return displayValue
+        except:
+            print 'Something went wrong converting the input value?'
+            return _inputVal
+
 
 
 class Group:
@@ -288,7 +352,13 @@ class Group:
     
     def getDataForGrid(self):
         """ Return the obj dict data as lists for GridView DataStore Display
+        
+        Instead of using a simple List for the DataStore, here I'm using an
+        Eto FilterCollection. This is so that later, if the values are changed by a callback
+        while the window is running (for the unit conversions) I can just use
+        .DataStore.Refresh() to update all the values in the GridView.
         """
+        
         outputList = []
         
         for k, v in self.Data.items():
@@ -298,9 +368,16 @@ class Group:
             outputList.append(temp)
         
         if len(outputList) == 0:
-            return ['']
+            outputList = ['']
+            output_FilterCollection = Eto.Forms.FilterCollection[System.Object]()
+            output_FilterCollection.AddRange(outputList)
+            
+            return output_FilterCollection
         else:
-            return outputList
+            output_FilterCollection = Eto.Forms.FilterCollection[System.Object]()
+            output_FilterCollection.AddRange(outputList)
+            
+            return output_FilterCollection
     
     def updateGroupData(self, _data):
         for item in _data:
@@ -333,6 +410,10 @@ class Group:
             
             dataAsList.append( self.Data.get(key) )
         
+        # In case the user deletes the last row, add back in a single blank one
+        if len(dataAsList) == 0:
+            self.addBlankRowToData()
+        
         # Now turn the new list back into a dict, update the IDs as you go
         newDataDict = {}
         for i, dataRow in enumerate(dataAsList):
@@ -345,12 +426,6 @@ class Group:
 
 
 class View(Eto.Forms.Dialog):
-    
-    unitsConversionSchema = {
-                'w/m2k': {'w/m2k':1, 'Btu/hr-sf-F':5.678264134},
-                'm': {'m':1, 'ft':0.3048, 'in':0.0254},
-                'w/mk': {'w/mk':1, 'Btu/hr-ft-F':1.730734908}
-                }
     
     def __init__(self, controller):
         self.controller = controller
@@ -424,7 +499,7 @@ class View(Eto.Forms.Dialog):
         grid_Layout.ShowHeader = True
         grid_Layout.DataStore = _grContent.getDataForGrid()
         grid_Layout.ShowCellBorders = True
-        grid_Layout.CellEdited += self.OnCellEdited_Convert
+        grid_Layout.CellEdited += self.controller.evalInput
         
         return grid_Layout
     
@@ -439,75 +514,6 @@ class View(Eto.Forms.Dialog):
         column.Properties['ColumnUnit'] = _unit
         
         return column
-    
-    def OnCellEdited_Convert(self, sender, e):
-        """
-        # Not used yet, someday maybe....
-        
-        #for attr in dir(e):
-            #print attr, '::', getattr(e, attr)
-        """
-        
-        
-        #Figure out the correct 'units' for the column being edited
-        GridColumn = getattr(e, 'GridColumn')
-        colProperties = getattr(GridColumn, 'Properties')
-        for each in colProperties:
-            if each.Key == 'ColumnUnit':
-                colUnit = each.Value
-        
-        # Pull out the Cell's user input value
-        cellValue = getattr(GridColumn, 'DataCell')
-        rowItems = getattr(e, 'Item')
-        colNum = getattr(e, 'Column')
-        
-        # Get the input value converted into SI Units
-        itemValueInSIunits = self.determinInputUnits( rowItems[colNum], colUnit )
-    
-    def determinInputUnits(self, _in, _colUnit):
-        """This is not used yet
-        Need to figure out how to handle Names with numbers in then, Camelcase names
-        and how to pass this value back to the GridView and change/update the value there
-        
-        """
-        return _in # For now, ignores everything after this....
-        
-        
-        inputVal = str(_in).upper().replace(' ', '')
-        outputVal = inputVal
-        
-        try:
-            outputVal = float(inputVal)
-        except:
-            # Pull out just the decimal characters
-            for each in re.split(r'[^\d\.]', inputVal):
-                if len(each)>0:
-                    outputVal = each
-            
-            # Try and do a conversion
-            try:
-                outputVal = float(outputVal)
-                if 'FT' in inputVal or "'" in inputVal:
-                    conversionFactor = self.unitsConversionSchema.get(_colUnit).get('ft', _colUnit)
-                    print "{} x {} = {}".format(outputVal, conversionFactor, outputVal*conversionFactor)
-                    outputVal = outputVal*conversionFactor
-                elif 'IN' in inputVal or '"' in inputVal:
-                    conversionFactor = self.unitsConversionSchema.get(_colUnit).get('in', _colUnit)
-                    print "{} x {} = {}".format(outputVal, conversionFactor, outputVal*conversionFactor)
-                    outputVal = outputVal*conversionFactor
-                elif 'IP' in inputVal:
-                    if _colUnit == 'w/m2k':
-                        conversionFactor = self.unitsConversionSchema.get(_colUnit).get('Btu/hr-sf-F', _colUnit)
-                        print "{} x {} = {}".format(outputVal, conversionFactor, outputVal*conversionFactor)
-                        outputVal = outputVal*conversionFactor
-                    elif _colUnit == 'w/mk':
-                        conversionFactor = self.unitsConversionSchema.get(_colUnit).get('Btu/hr-ft-F', _colUnit)
-                        print "{} x {} = {}".format(outputVal, conversionFactor, outputVal*conversionFactor)
-                        outputVal = outputVal*conversionFactor
-            except:
-                print 'Could not convert the input string.'
-        
-        return outputVal
     
     def _addGridToScrollPanel(self, _grContent):
         Scroll_panel = Eto.Forms.Scrollable()
@@ -565,18 +571,21 @@ class View(Eto.Forms.Dialog):
             gr_data = group.Layout.DataStore
             gr_dataTypes = group.ColType
             
-            for dataRow in gr_data:
-                d = {gr_fields[i]: self._cleanInput(dataRow[i], gr_dataTypes[i]) for i in range(len(gr_fields))}
-                
-                if len(d.get('Name')) > 0:
-                    tempDict = {}
-                    nm = "{}_{}".format(group.LibType, d.get('Name'))
+            try:
+                for dataRow in gr_data:
+                    d = {gr_fields[i]: self._cleanInput(dataRow[i], gr_dataTypes[i]) for i in range(len(gr_fields))}
                     
-                    tempDict['Name'] = nm
-                    tempDict['LibType'] = group.LibType
-                    tempDict['Data'] = d
-                    
-                    dataFromGridItems[nm] = tempDict 
+                    if len(d.get('Name')) > 0:
+                        tempDict = {}
+                        nm = "{}_{}".format(group.LibType, d.get('Name'))
+                        
+                        tempDict['Name'] = nm
+                        tempDict['LibType'] = group.LibType
+                        tempDict['Data'] = d
+                        
+                        dataFromGridItems[nm] = tempDict 
+            except:
+                return {}             
         
         return dataFromGridItems
 
@@ -640,6 +649,35 @@ class Controller:
     
     def getTBLibraryFileAddress(self):
         return self.model.getTBLibAddress()
+    
+    def evalInput(self, sender, e):
+        # Determine if the user provides some 'Units' such as 'ft' or 'in' 
+        # If so, do the conversion to the right SI value and reset the grid cell value
+        
+        #print('-'*20)
+        #for attr in dir(sender):
+            #print attr, '::', getattr(sender, attr)
+        
+        #print('-'*20)
+        #for attr in dir(e):
+            #print attr, '::', getattr(e, attr)
+        
+        #Figure out the correct 'units' for the column being edited
+        GridColumn = getattr(e, 'GridColumn')
+        colProperties = getattr(GridColumn, 'Properties')
+        for each in colProperties:
+            if each.Key == 'ColumnUnit':
+                colUnit = each.Value
+        
+        # Get the input value, decide what to do with it
+        print e.Row, e.Column
+        print sender.DataStore.Item[e.Row][e.Column]
+        inputVal = sender.DataStore.Item[e.Row][e.Column]
+        displayVal = self.model.determineDisplayVal(inputVal, colUnit)
+        
+        # Update with the new value
+        sender.DataStore.Item[e.Row][e.Column] = displayVal
+        sender.DataStore.Refresh()
 
 
 def RunCommand( is_interactive ):
