@@ -22,7 +22,7 @@
 """
 Core Classes and Definitiions for IDF2PHPP Exporter. You must run this component before anything else will work. If you are having trouble when opening a GH file for the first time, try hitting 'Recompute'.
 -
-EM Augsut 16, 2020
+EM August 19, 2020
 """
 
 print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
@@ -37,7 +37,7 @@ print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com>
 
 ghenv.Component.Name = "BT_CORE"
 ghenv.Component.NickName = "IDF2PHPP"
-ghenv.Component.Message = 'AUG_16_2020'
+ghenv.Component.Message = 'AUG_19_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "00 | Core"
@@ -57,7 +57,6 @@ from contextlib import contextmanager
 #-------------------------------------------------------------------------------
 ##########    From HB    ###########
 hb_EPMaterialAUX = sc.sticky["honeybee_EPMaterialAUX"]()
-
 
 #Data
 def getClimateData():
@@ -942,6 +941,67 @@ def phpp_createSrfcHBMatAndConst(_constName, _conductance, _intInsul):
     new_EPConstruction = phpp_makeHBConstruction(_nm=constructionName, _layer1='MASSLAYER', _layer2=matName, _layer3='MASSLAYER')
     
     return newHBMat, newHBMat_Mass, constructionName, new_EPConstruction
+
+def phpp_convertValueToMetric(_inputString, _outputUnit):
+    """ Will convert a string such as "12 FT" into the corresponding Metric unit
+    
+    Arguments:
+        _inputString: String: The input value from the user
+        _outputUnit: String: ('M', 'CM', 'MM', 'W/M2K', 'W/MK', 'M3') The desired unit
+    """
+    schema = {
+                'M':{'SI': 1, 'M':1, 'CM':0.01, 'MM':0.001, 'FT':0.3048, "'":0.3048, 'IN':0.0254, '"':0.0254},
+                'CM':{'SI': 1, 'M':100, 'CM':1, 'MM':0.1, 'FT':30.48, "'":30.48, 'IN':2.54, '"':2.54},
+                'MM':{'SI': 1, 'M':1000, 'CM':10, 'MM':1, 'FT':304.8, "'":304.8, 'IN':25.4, '"':25.4},
+                'W/M2K':{'SI':1, 'IP':5.678264134}, # IP=Btu/hr-sf-F
+                'W/MK':{'SI':1, 'IP':1.730734908}, #IP=Btu/hr-ft-F
+                'M3':{'SI':1, 'FT3':0.028316847},
+              }
+    
+    inputValue = _inputString
+    
+    if not _inputString:
+        return None
+    
+    try:
+        return float(inputValue)
+    except:
+        try:
+            # Pull out just the decimal numeric characters, if any
+            for each in re.split(r'[^\d\.]', _inputString):
+                if len(each)>0:
+                    inputValue = each
+                    break # so it will only take the first number found, "123 ft3" doesn't work otherwise
+            
+            inputUnit = phpp_findInputStringUnit(_inputString)
+            conversionFactor = schema.get(_outputUnit, {}).get(inputUnit, 1)
+            return float(inputValue) * float(conversionFactor)
+        except:
+            return inputValue
+
+def phpp_findInputStringUnit(_in):
+    """ Util func  used by the unit converter """
+    
+    evalString = str(_in).upper()
+    
+    if 'FT' in evalString or "'" in evalString:
+        inputUnit = 'FT'
+    elif 'IN' in evalString or '"' in evalString:
+        inputUnit = 'IN'
+    elif 'MM' in evalString:
+        inputUnit = 'MM'
+    elif 'CM' in evalString:
+        inputUnit = 'CM'
+    elif 'M' in evalString and 'MM' not in evalString:
+        inputUnit = 'M'
+    elif 'IP' in evalString:
+        inputUnit = 'IP'
+    elif 'FT3' in evalString:
+        inputUnit = 'FT3'
+    else:
+        inputUnit = 'SI'
+    
+    return inputUnit
 
 #-------------------------------------------------------------------------------
 ###### Classes for PHPP Objects ####
@@ -2368,10 +2428,8 @@ class PHPP_Frame:
     
     def __unicode__(self):
         return u'A PHPP Style Frame Object: < {self.Name} >'.format(self=self)
-    
     def __str__(self):
         return unicode(self).encode('utf-8')
-    
     def __repr__(self):
        return "{}( _nm={!r}, _uValues={!r}, _frameWidths={!r}, _psiGlazings={!r}, "\
               "_psiInstalls={!r}, _chiGlassCarrier={!r} )".format(
@@ -2384,17 +2442,120 @@ class PHPP_Frame:
                self.chiGlassCarrier )
 
 class PHPP_Sys_Duct:
-    def __init__(self, _lenM=5, _wMM=104, _iThckMM=52, _iLambda=0.04):
-        self.DuctLength = _lenM
-        self.DuctWidth = _wMM
-        self.InsulationThickness = _iThckMM
-        self.InsulationLambda = _iLambda
+    def __init__(self, _lenM=[5], _wMM=[], _iThckMM=[], _iLambda=[]):
+        """
+        Args:
+            _lenM (List<float | Curve>): The individual duct segments for a single 'leg' of the ERV. ERV will have two 'legs' total. Input can be either number or a Curve
+            _wMM (List<float>): The duct segment widths (for round ducts) value is the diameter in MM
+            _iThckMM (List<float>): The duct segment insualtion thicknesses in MM 
+            _iLambda (List<float>): The duct segment insualtion lambda valies in W/mk
+        """
+        self.Warnings = []
+        self.DuctInput = _lenM
+        self.NumDuctSegments = len(self.DuctInput)
+        self.DuctLength = self.calcDuctLength(self.DuctInput)
+        self.DuctWidth = self.getParamValueAsList(_wMM, 104)
+        self.InsulationThickness = self.getParamValueAsList(_iThckMM, 52)
+        self.InsulationLambda = self.getParamValueAsList(_iLambda, 0.04)
         
+        self.calculateDuctParams(self.DuctInput)
+    
+    def getParamValueAsList(self, _inputList, _default):
+        """ Makes sure that all the input Param lists are of the same length
+        
+        Will clean up any lists of mis-matched lengths and decide what values to use
+        """
+        outputList = []
+        if len(_inputList) == self.NumDuctSegments:
+            for item in _inputList:
+                outputList.append(item if item else _default)
+        elif len(_inputList) != self.NumDuctSegments and len(_inputList) != 0:
+            for i in range(self.NumDuctSegments):
+                try:
+                    outputList.append(_inputList[i])
+                except:
+                    outputList.append(_inputList[-1])
+        else:
+            outputList = [_default] * self.NumDuctSegments
+        
+        return outputList
+    
+    def calcDuctLength(self, _in):
+        """ If already a number, will just return, otherwise gets Rhino Curve length"""
+        
+        totalLen = []
+        for eachLength in _in:
+            try:
+                totalLen.append( float(eachLength) )
+            except:
+                with idf2ph_rhDoc():
+                    try:
+                        ductCrv = rs.coercecurve(eachLength)
+                        totalLen.append( ghc.Length(ductCrv) )
+                    except:
+                        self.Warnings.append('Not a curve')
+                        totalLen.append( 5 )# Default
+        
+        return sum(totalLen)
+    
+    def getParamValues(self, _in):
+        """ Looks at Rhino scene to try get Param values from UserText"""
+        
+        l, w, t, c = [], [], [], []
+        
+        with idf2ph_rhDoc():
+            for i, eachLength in  enumerate(_in):
+                try:
+                    l.append( float( eachLength ))
+                    w.append( float( self.DuctWidth[i] ))
+                    t.append( float( self.InsulationThickness[i] ))
+                    c.append( float( self.InsulationLambda[i] ))
+                except:
+                    try:
+                        l.append( float(ghc.Length(eachLength)) )
+                        w.append( float( self.getUserTextwDefault(eachLength, 'ductWidth', self.DuctWidth[i]) ))
+                        t.append( float( self.getUserTextwDefault(eachLength, 'insulThickness', self.InsulationThickness[i]) ))
+                        c.append( float( self.getUserTextwDefault(eachLength, 'insulConductivity', self.InsulationLambda[i]) ))
+                    except:
+                        self.Warnings.append('No param values found in Rhino. Using GH values or defaults.')
+    
+        return l, w, t, c
+    
+    def calculateDuctParams(self, _in):
+        # Combine duct segments with different param into a single 'leg', find the length-weighted avg values
+        l, w, t, c = self.getParamValues(_in)
+        
+        totalLen = sum(l) if sum(l) != 0 else 1
+        
+        lenWeightedWidth = (sum([(len*width) for (len, width) in zip(l, w)])) / totalLen
+        lenWeightedInsulThickness =(sum([(len*thck) for (len, thck) in zip(l, t)])) / totalLen
+        lenWeightedInsulLambda =(sum([(len*cond) for (len, cond) in zip(l, c)])) / totalLen
+        
+        self.DuctWidth = lenWeightedWidth
+        self.InsulationThickness = lenWeightedInsulThickness
+        self.InsulationLambda = lenWeightedInsulLambda
+    
+    @staticmethod
+    def getUserTextwDefault(_obj, _key, _default=None):
+        """ Why doesn't rs.GetUserText() do this by Default already? Sheesh...."""
+        
+        result = rs.GetUserText(_obj, _key)
+        if result:
+            return result
+        else:
+            return _default
+    
     def __unicode__(self):
         return u'HRV Duct Object Params'
-    
     def __str__(self):
         return unicode(self).encode('utf-8')
+    def __repr__(self):
+        return "{}( _lenM={!r}, _wMM={!r}, _iThckMM={!r}, _iLambda={!r})".format(
+                self.__class__.__name__,
+                self.DuctInput,        
+                self.DuctWidth,
+                self.InsulationThickness,
+                self.InsulationLambda)
 
 class PHPP_Sys_Ventilation:
     
@@ -2467,9 +2628,15 @@ class PHPP_Sys_VentUnit:
     
     def __unicode__(self):
         return u'Ventilation Unit Object Params for: <{self.Name}>'.format(self=self)
-    
     def __str__(self):
         return unicode(self).encode('utf-8')
+    def __repr__(self):
+        return "{}( _nm={!r}, _hr={!r}, _mr={!r}, _elec={!r})".format(
+                self.__class__.__name__,
+                self.Name,        
+                self.HR_Eff,
+                self.MR_Eff,
+                self.Elec_Eff)
 
 class PHPP_Sys_ExhaustVent:
     def __init__(self, nm, airFlowRate_On, airFlowRate_Off, hrsPerDay_On, daysPerWeek_On, default_duct):
@@ -4089,10 +4256,8 @@ class PHPP_XL_Obj:
     
     def __unicode__(self):
         return u"PHPP Obj | Worksheet: {self.Worksheet}  |  Cell: {self.Range}  |  Value: {self.Value}".format(self=self)
-    
     def __str__(self):
         return unicode(self).encode('utf-8')
-    
     def __repr__(self):
        return "{}( _nm={!r}, _shtNm={!r}, _rangeAddress={!r}, _val={!r}".format(
                self.__class__.__name__,
@@ -4118,6 +4283,7 @@ sc.sticky['phpp_makeHBMaterial_Opaque'] =  phpp_makeHBMaterial_Opaque
 sc.sticky['phpp_makeHBConstruction'] = phpp_makeHBConstruction
 sc.sticky['phpp_getWindowLibraryFromRhino'] = phpp_getWindowLibraryFromRhino
 sc.sticky['phpp_createSrfcHBMatAndConst'] = phpp_createSrfcHBMatAndConst
+sc.sticky['phpp_convertValueToMetric'] = phpp_convertValueToMetric
 
 # PHPP Object Classes
 sc.sticky['PHPP_XL_Obj'] = PHPP_XL_Obj
