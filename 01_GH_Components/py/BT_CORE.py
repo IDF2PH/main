@@ -22,7 +22,7 @@
 """
 Core Classes and Definitiions for IDF2PHPP Exporter. You must run this component before anything else will work. If you are having trouble when opening a GH file for the first time, try hitting 'Recompute'.
 -
-EM August 19, 2020
+EM August 20, 2020
 """
 
 print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
@@ -37,7 +37,7 @@ print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com>
 
 ghenv.Component.Name = "BT_CORE"
 ghenv.Component.NickName = "IDF2PHPP"
-ghenv.Component.Message = 'AUG_19_2020'
+ghenv.Component.Message = 'AUG_20_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "00 | Core"
@@ -4243,27 +4243,95 @@ class IDF_Obj_location:
 class PHPP_XL_Obj:
     """ A holder for an Excel writable datapoint with a worksheet, range and value """
     
-    def __init__(self, _shtNm, _rangeAddress, _val):
+    # {Unit You have: {Unit you Want}, {...}, ...}
+    conversionSchema = {
+            'C'    : {'SI':'*1', 'C':'*1', 'F':'*(9/5)+32'},
+            'LITER': {'SI':'*1', 'LITER':'*1', 'GALLON':'*0.264172'},
+            'MM'   : {'SI':'*1', 'MM':'*1', 'FT':'*0.00328084', 'IN':'*0.0394'},
+            'M'    : {'SI':'*1', 'M':'*1', 'FT':'*3.280839895', 'IN':'*39.3701'},
+            'M/DAY': {'SI':'*1', 'M/DAY':'*1', 'FT/DAY':'*3.280839895'},
+            'M2'   : {'SI':'*1', 'M2':'*1', 'FT2':'*10.76391042'},
+            'M3'   : {'SI':'*1', 'M3':'*1', 'FT3':'*35.31466672'},
+            'M3/H' : {'SI':'*1', 'M3/H':'*1', 'CFM':'*0.588577779'},
+            'WH/M3': {'SI':'*1', 'WH/M3':'*1', 'W/CFM':'*1.699010796'},
+            'WH/KM2':{'SI':'*1', 'WH/KM2':'*1', 'BTU/FT2':'*0.176110159'},
+            'MJ/M3K':{'SI':'*1', 'MJ/M3K':'*1', 'BTU/FT3-F':'*14.91066014'},
+            'W/M2K': {'SI':'*1', 'W/M2K':'*1', 'BTU/HR-FT2-F':'*0.176110159','HR-FT2-F/BTU':'**-1*5.678264134' },
+            'M2K/W': {'SI':'*1', 'M2K/W':'*1', 'HR-FT2-F/BTU':'*5.678264134'},
+            'W/MK' : {'SI':'*1', 'W/MK':'*1', 'HR-FT2-F/BTU-IN':'**-1*0.144227909', 'BTU/HR-FT-F':'*0.577789236'},
+            'W/K'  : {'SI':'*1', 'W/K':'*1', 'BTU/HR-F':'*1.895633976'},
+            'KW'   : {'SI':'*1', 'KW':'*1','BTU/H':'*3412.141156'},
+            'W/W'  : {'SI':'*1', 'W/W':'*1', 'BTU/HW':'*3.412141156'} # SEER
+            }
+    
+    def __init__(self, _shtNm, _rangeAddress, _val, _unitSI=None, _unitIP='SI'):
         """
         Args:
             _shtNm (str): The Name of the Worksheet to write to
             _rangeAddress (str): The Cell Range (A1, B12, etc...) to write to on the Worksheet
             _val (str): The Value to write to the Cell Range (Value2)
+            _unitSI: (str) The SI unit for the item
+            _unitIP: (str) The IP unit for the item
         """
         self.Worksheet = _shtNm
         self.Range = _rangeAddress
         self.Value = _val
+        self.Unit_SI = _unitSI
+        self.Unit_IP = _unitIP
+    
+    def getWorksheet(self, _units='SI'):
+        if _units == 'SI':
+            return self.Worksheet
+        
+        if self.Worksheet == 'U-Values':
+            return 'R-Values'
+        elif self.Worksheet == 'Additional Vent':
+            return 'Addl vent'
+        else:
+            return self.Worksheet
+    
+    def getValue(self, _targetUnit='SI'):
+        """ Get the Item Value properly. Allows for unit conversion.
+        
+        For instance calling "obj.getValue(obj.Unit_IP)" will return the 
+        converted value into Inch-Pound units. Pass 'SI' or leave 
+        input blank for no conversion (return = self.Value x 1.0)
+        
+        Args:
+            _targetUnit: (str) The unit to convert the value to. 'SI' or 'IP'
+        Returns:
+            value converted into the right units
+        """
+        
+        if not self.Unit_SI:
+            return self.Value
+        
+        if _targetUnit == 'IP':
+            targetUnit = self.Unit_IP
+        elif _targetUnit == 'SI':
+            targetUnit = self.Unit_SI
+        else:
+            targetUnit = _targetUnit
+        
+        try:
+            schema = self.conversionSchema.get(self.Unit_SI, {'SI':1})
+            conversionFactor = schema.get(targetUnit, 1)
+            return eval( str(self.Value)+str(conversionFactor))
+        except:
+            return self.Value
     
     def __unicode__(self):
         return u"PHPP Obj | Worksheet: {self.Worksheet}  |  Cell: {self.Range}  |  Value: {self.Value}".format(self=self)
     def __str__(self):
         return unicode(self).encode('utf-8')
     def __repr__(self):
-       return "{}( _nm={!r}, _shtNm={!r}, _rangeAddress={!r}, _val={!r}".format(
+       return "{}( _nm={!r}, _shtNm={!r}, _rangeAddress={!r}, _val={!r}, _unitSI={!r}, _unitIP={!r}".format(
                self.__class__.__name__,
                self.Worksheet,
                self.Range,
-               self.Value )
+               self.Value,
+               self.Unit_SI,
+               self.Unit_IP)
 
 ####################################
 # Add the Classes to the Scriptcontext
