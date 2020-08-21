@@ -26,7 +26,7 @@ including window Psi-Installs. This uses a Model-View-Controller configuration
 mostly just cus' I wanted to test that out. Might be way overkill for something like
 this... but was fun to build.
 -
-EM August 16, 2020
+EM August 21, 2020
 """
 
 import rhinoscriptsyntax as rs
@@ -45,15 +45,22 @@ import clr
 clr.AddReferenceByName('Microsoft.Office.Interop.Excel, Culture=neutral, PublicKeyToken=71e9bce111e9429c')
 from Microsoft.Office.Interop import Excel
 import re
+from contextlib import contextmanager
+from System.Runtime.InteropServices import Marshal
+import gc
+import unicodedata
 
 __commandname__ = "PHPP_EditComponentLibrary"
 
 class Model:
     
+    # {Unit you want: {unit you input}, {..}, ...}
     unitsConversionSchema = {
-            'W/M2K': {'SI':1, 'IP':5.678264134},
-            'M': {'SI': 1, 'M':1, 'CM':0.01, 'MM':0.001, 'FT':0.3048, "'":0.3048, 'IN':0.0254, '"':0.0254},
-            'W/MK': {'SI':1, 'IP':1.730734908}
+            'W/M2K': {'SI':1, 'W/M2K':1, 'IP':5.678264134, 'BTU/HR-FT2-F':5.678264134, 'HR-FT2-F/BTU':'**-1*5.678264134'},
+            'M'    : {'SI': 1, 'M':1, 'CM':0.01, 'MM':0.001, 'FT':0.3048, "'":0.3048, 'IN':0.0254, '"':0.0254},
+            'W/MK' : {'SI':1, 'W/MK':1, 'IP':1.730734908, 'BTU/HR-FT-F':1.730734908},
+            'W/K'  : {'SI':1, 'W/K':1, 'BTU/HR-F':1.895633976},
+            '-'    : {'SI':1, '-':1}
             }
     
     def __init__(self, selObjs):
@@ -184,79 +191,197 @@ class Model:
             rs.SetDocumentUserText('PHPP_Component_Lib', fd.FileName)
             return fd.FileName
     
+    @contextmanager
+    def readingFromExcel(self, _lib_path):
+        """ Context Manager for handling open / close / cleanup for Excel App"""
+        #
+        #Ref: https://stackoverflow.com/questions/158706/how-do-i-properly-clean-up-excel-interop-objects
+        #Ref: https://devblogs.microsoft.com/visualstudio/marshal-releasecomobject-considered-dangerous/
+        #
+        # Appears that we can / should leave the Marshal.ReleaseComObect() off?
+        # Just using gc.collect() seems to catch all but the first instance, so
+        # at least they don't build up past the first. Still don't know why
+        # I can't kill that first instance though...
+        #
+        
+        try:
+            #-----------------------------------------------------------
+            # Make a Temporary copy
+            self.saveDir = os.path.split(_lib_path)[0]
+            self.tempFile = '{}_temp.xlsx'.format(random.randint(0,1000))
+            self.tempFilePath = os.path.join(self.saveDir, self.tempFile)
+            copyfile(_lib_path, self.tempFilePath)
+            
+            #-----------------------------------------------------------
+            # Read from the Excel file
+            self.ex = Excel.ApplicationClass()
+            self.ex.Visible = False  # False means excel is hidden as it works
+            self.ex.DisplayAlerts = False
+            self.workbook = self.ex.Workbooks.Open(self.tempFilePath)
+            self.worksheets = self.workbook.Worksheets
+            yield
+        except:
+            self.workbook.Close()        # Close the worbook itself
+            self.ex.Quit()               # Close out the instance of Excel
+            self.ex = None
+            gc.collect()
+            os.remove(self.tempFilePath) # Remove the temporary read-file
+        finally:
+            self.workbook.Close()        # Close the worbook itself
+            self.ex.Quit()               # Close out the instance of Excel
+            self.ex = None
+            gc.collect()
+            os.remove(self.tempFilePath) # Remove the temporary read-file
+    
+    @staticmethod
+    def determineUnitsFromStr(_inputStr):
+        """ Takes in a list of strings, finds the right unit for each"""
+        
+        outputList = []
+        
+        # Returns: [(Final Unit, Input Unit), (Final Unit, Input Unit), ...]
+        
+        for item in _inputStr:
+            if item:
+                if 'W/(M\xb2K)' in item.upper() or 'W/M2K' in item.upper():
+                    outputList.append(('W/M2K','W/M2K'))
+                elif 'BTU/HR.FT2\xb0F' in item.upper() or 'BTU/HR-FT2-F' in item.upper():
+                    outputList.append( ('W/M2K', 'BTU/HR-FT2-F') )
+                elif 'HR.FT2\xb0F/BTU' in item.upper() or 'HR-FT2-F/BTU' in item.upper():
+                    outputList.append(('W/M2K', 'HR-FT2-F/BTU'))
+                elif 'W/MK' in item.upper() or 'W/(MK)' in item.upper():
+                    outputList.append(('W/MK','W/MK'))
+                elif 'BTU/HR.FT\xb0F' in item.upper() or 'BTU/HR-FT-F' in item.upper():
+                    outputList.append(('W/MK', 'BTU/HR-FT-F'))
+                elif 'W/K' in item.upper():
+                    outputList.append(('W/K','W/K'))
+                elif 'BTU/hr.\xb0F' in item.upper() or 'BTU/HR-F' in item.upper():
+                    outputList.append(('W/K','BTU/HR-F'))
+                elif 'M' == item.upper():
+                    outputList.append(('M','M'))
+                elif 'IN' == item.upper():
+                    outputList.append(('M', 'IN'))
+                elif 'FT' == item.upper():
+                    outputList.append(('M', 'FT'))
+                else:
+                    outputList.append( (str(item),str(item))  )
+            else:
+                outputList.append((None, None))
+        
+        return outputList
+        
+    def determineConversionFactors(self, _inputList):
+        """ Takes in a list of Tuples, finds the right conversion factor for each"""
+        # Args: _inputList = [(Final_Unit, Input_Unit), (Final_Unit, Input_Unit), ...]
+        
+        factors = []
+        
+        for each_tuple in _inputList:
+            targetUnit, inputUnit = each_tuple
+            if targetUnit and inputUnit:
+                d = self.unitsConversionSchema.get(each_tuple[0], {})
+                f = d.get(each_tuple[1], 2)
+                factors.append(f)
+            else:
+                factors.append(None)
+            
+        return factors
+    
+    @staticmethod
+    def convertInputVal(_inputListofTuples):
+        """ Takes a list of tuples, returns a list of the products"""
+        
+        outputList = []
+        
+        for eachTuple in _inputListofTuples:
+            if not eachTuple[1]:
+                outputList.append(eachTuple[0])
+            else:
+                try:
+                    result = float(eachTuple[0]) * float(eachTuple[1])
+                    outputList.append(result)
+                except:
+                    try:
+                        result = eval(str(eachTuple[0]) + str(eachTuple[1]))
+                        outputList.append(result)
+                    except:
+                        outputList.append(eachTuple[0])
+        
+        return outputList
+    
     def readCompoDataFromExcel(self):
         if rs.IsDocumentUserText():
             libPath = rs.GetDocumentUserText('PHPP_Component_Lib')
         
         try:
-            if libPath != None:
-                # If a Library File is set in the file...
-                if os.path.exists(libPath):
-                    print 'Reading the Main Component Library File....'
-                    
-                    # Make a Temporary copy
-                    saveDir = os.path.split(libPath)[0]
-                    tempFile = '{}_temp.xlsx'.format(random.randint(0,1000))
-                    tempFilePath = os.path.join(saveDir, tempFile)
-                    copyfile(libPath, tempFilePath) # create a copy of the file to read from
-                    
-                    # Open the Excel Instance and File
-                    ex = Excel.ApplicationClass()   
-                    ex.Visible = False  # False means excel is hidden as it works
-                    ex.DisplayAlerts = False
-                    workbook = ex.Workbooks.Open(tempFilePath)
-                    worksheets = workbook.Worksheets
-                    
-                    try:
-                        wsComponents = worksheets['Components']
-                    except:
-                        print "Could not find the 'Components' Worksheet in the taget file?"
-                    
-                    # Read in the Components from Excel Worksheet
-                    # Come in as 2D Arrays..... grrr.....
-                    xlArrayGlazing =  wsComponents.Range['IE15:IG113'].Value2
-                    xlArrayFrames = wsComponents.Range['IL15:JC113'].Value2
-                    xlArrayAssemblies = wsComponents.Range['E15:H113'].Value2
-                    
-                    workbook.Close()  # Close the worbook itself
-                    ex.Quit()  # Close out the instance of Excel
-                    os.remove(tempFilePath) # Remove the temporary read-file
-                    
-                    # Build the Glazing Library
-                    lib_Glazing = []
-                    xlListGlazing = list(xlArrayGlazing)
-                    for i in range(0,  len(xlListGlazing), 3 ):
-                        if xlListGlazing[i] != None:
-                            newGlazing = [xlListGlazing[i],
-                                        xlListGlazing[i+1],
-                                        xlListGlazing[i+2]
-                                        ]
-                            lib_Glazing.append(newGlazing)
-                    
-                    # Build the Frame Library
-                    lib_Frames = []
-                    xlListFrames = list(xlArrayFrames)
-                    for i in range(0,  len(xlListFrames), 18 ):
-                        newFrame = []
-                        if xlListFrames[i] != None:
-                            for k in range(i, i+18):
-                                newFrame.append(xlListFrames[k])
-                            lib_Frames.append(newFrame)
-                    
-                    # Build the Assembly Library
-                    lib_Assemblies = []
-                    xlListAssemblies = list(xlArrayAssemblies)
-                    for i in range(0, len(xlListAssemblies), 4):
-                        newAssembly = [xlListAssemblies[i],
-                                xlListAssemblies[i+1],
-                                xlListAssemblies[i+2],
-                                xlListAssemblies[i+3]
-                        ]
-                        lib_Assemblies.append(newAssembly)
+            if libPath == None:
+                return [], [], []
+            
+            if not os.path.exists(libPath):
+                return [], [], []
+            
+            #-------------------------------------------------------------------
+            print 'Reading the Main Component Library File....'
+            with self.readingFromExcel(libPath):
+                try:
+                    wsComponents = self.worksheets['Components']
+                except:
+                    print "ERROR: Could not find the 'Components' Worksheet in the target file?"
+                    return [], [], []
                 
-                return lib_Glazing, lib_Frames, lib_Assemblies
-        except:
+                #---------------------------------------------------------------
+                # Read in the Components from Excel Worksheet
+                # Come in as 2D Arrays..... grrr.....
+                xl_glazing =  list(wsComponents.Range['IE15:IG113'].Value2)
+                xl_frames = list(wsComponents.Range['IL15:JC113'].Value2)
+                xl_assemblies = list(wsComponents.Range['E15:H113'].Value2)
+                
+                # Read the units headings
+                xl_glazing_units = list(wsComponents.Range['IE14:IG14'].Value2)
+                xl_frames_units = list(wsComponents.Range['IL14:JC14'].Value2)
+                xl_assemblies_units = list(wsComponents.Range['E14:H14'].Value2)
+            
+            #-------------------------------------------------------------------
+            # Figure out the Unit Conversion Factors to use
+            
+            glazing_units = self.determineUnitsFromStr( xl_glazing_units)
+            frames_units = self.determineUnitsFromStr( xl_frames_units)
+            assembls_units = self.determineUnitsFromStr( xl_assemblies_units)
+            
+            glazing_conv_factors = self.determineConversionFactors(glazing_units)
+            frames_conv_factors = self.determineConversionFactors(frames_units)
+            assmbls_conv_factors = self.determineConversionFactors(assembls_units)
+            
+            #-------------------------------------------------------------------
+            # Build the Glazing Library
+            lib_Glazing = []
+            for i in range(0, len(xl_glazing), 3):
+                if xl_glazing[i] == None:
+                    continue
+                tempList = zip(xl_glazing[i:i+3], glazing_conv_factors)
+                lib_Glazing.append( self.convertInputVal(tempList) )
+            
+            #-------------------------------------------------------------------
+            # Build the Frame Library
+            lib_Frames = []
+            for i in range(0, len(xl_frames), 18):
+                if xl_frames[i] == None:
+                    continue
+                tempList = zip(xl_frames[i:i+18], frames_conv_factors)
+                lib_Frames.append( self.convertInputVal(tempList) )
+            
+            #-------------------------------------------------------------------
+            lib_Assemblies = []
+            for i in range(0, len(xl_assemblies), 4):
+                if xl_assemblies[i] == None:
+                    continue
+                tempList = zip(xl_assemblies[i:i+4], assmbls_conv_factors)
+                lib_Assemblies.append( self.convertInputVal(tempList) )
+            
+            return lib_Glazing, lib_Frames, lib_Assemblies
+        except Exception as inst:
             print('Woops... something went wrong reading from the Excel file?')
+            print('ERROR: ', inst)
             return [], [], []
     
     def addCompoDataToDocumentUserText(self, _glzgs, _frms, _assmbls):
@@ -747,4 +872,4 @@ def RunCommand( is_interactive ):
     dialog.main()
 
 # Use for debuging in editor
-#RunCommand(True)
+RunCommand(True)
