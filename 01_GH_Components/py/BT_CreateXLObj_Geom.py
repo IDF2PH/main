@@ -24,7 +24,7 @@ Takes in the E+ objects from the IDF-->PHPP Component and creates simplied
 Excel-ready objects for writing to the PHPP
 Each 'excel-ready' object has a Value, a Cell Range ('A4', 'BB56', etc...) and a Sheet Name
 -
-EM August 20, 2020
+EM August 22, 2020
 
     Args:
         _PHPPObjs: A DataTree of the PHPP Objects to write out to Excel. Connect to the 'PHPPObjs_' in the 'IDF->PHPP Objs' Component.
@@ -49,7 +49,7 @@ EM August 20, 2020
 
 ghenv.Component.Name = "BT_CreateXLObj_Geom"
 ghenv.Component.NickName = "Create Excel Obj - Geom"
-ghenv.Component.Message = 'AUG_20_2020'
+ghenv.Component.Message = 'AUG_22_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -944,7 +944,7 @@ def getGround(_floorElements, _zones):
             # Slab on Grade Type
             ground.append(PHPP_XL_Obj('Ground', col0+'24', 'x' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'29', '' ))
-            ground.append(PHPP_XL_Obj('Ground', col0+'31', '' ))
+            ground.append(PHPP_XL_Obj('Ground', col0+'32', '' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'38', '' ))
             ground.append(PHPP_XL_Obj('Ground', col1+'25', floorElement.perimInsulDepth, 'M', 'IN' ))
             ground.append(PHPP_XL_Obj('Ground', col1+'26', floorElement.perimInsulThick, 'M', 'IN' ))
@@ -957,7 +957,7 @@ def getGround(_floorElements, _zones):
             # Heated Basement
             ground.append(PHPP_XL_Obj('Ground', col0+'24', '' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'29', 'x' ))
-            ground.append(PHPP_XL_Obj('Ground', col0+'31', '' ))
+            ground.append(PHPP_XL_Obj('Ground', col0+'32', '' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'38', '' ))
             ground.append(PHPP_XL_Obj('Ground', col1+'30', floorElement.WallHeight_BG, 'M', 'FT' ))
             ground.append(PHPP_XL_Obj('Ground', col2+'30', floorElement.WallU_BG, 'W/M2K', 'HR-FT2-F/BTU'))
@@ -966,7 +966,7 @@ def getGround(_floorElements, _zones):
             # Unheated Basement
             ground.append(PHPP_XL_Obj('Ground', col0+'24', '' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'29', '' ))
-            ground.append(PHPP_XL_Obj('Ground', col0+'31', 'x' ))
+            ground.append(PHPP_XL_Obj('Ground', col0+'32', 'x' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'38', '' ))
             ground.append(PHPP_XL_Obj('Ground', col1+'33', floorElement.WallHeight_AG, 'M', 'FT' ))
             ground.append(PHPP_XL_Obj('Ground', col2+'33', floorElement.WallU_AG, 'W/M2K', 'HR-FT2-F/BTU' ))
@@ -980,7 +980,7 @@ def getGround(_floorElements, _zones):
             # Suspended Floor overCrawlspace
             ground.append(PHPP_XL_Obj('Ground', col0+'24', '' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'29', '' ))
-            ground.append(PHPP_XL_Obj('Ground', col0+'31', '' ))
+            ground.append(PHPP_XL_Obj('Ground', col0+'32', '' ))
             ground.append(PHPP_XL_Obj('Ground', col0+'38', 'x' ))
             ground.append(PHPP_XL_Obj('Ground', col1+'39', floorElement.CrawlU, 'W/M2K', 'HR-FT2-F/BTU'  ))
             ground.append(PHPP_XL_Obj('Ground', col1+'40', floorElement.WallHeight, 'M', 'FT' ))
