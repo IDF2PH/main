@@ -24,7 +24,7 @@ Writes a series of objects to an excel sheet, then recalculates the sheet.
 These objects should be in a Treemap, and need a Worksheet, Range, and Value variable.
 Optionally only writes the differances from the last execution of this function, to reduce writing time.
 -
-Component by Jack Hymowitz, August 20, 2020
+Component by Jack Hymowitz, August 29, 2020
 
     Args:
         _excel: A running ExcelInterface from OpenExcel Workbook
@@ -35,9 +35,9 @@ Component by Jack Hymowitz, August 20, 2020
         excel: The running ExcelInterface is outputted after this function runs.
         numWrites: The number of writes that occured, for debugging purposes.
 """
-ghenv.Component.Name = "BT_WriteXLWorkbook"
+ghenv.Component.Name = "BT_XLWriteWorkbook"
 ghenv.Component.NickName = "Write XL Workbook"
-ghenv.Component.Message = 'AUG_20_2020'
+ghenv.Component.Message = 'AUG_29_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"

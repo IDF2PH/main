@@ -25,7 +25,7 @@ Enables the COM interface connecting Rhino to Excel on the user's computer.
 > Copies a file if the target file name doesn't already exist. 
 > Passes the full file name out, along with whether or not a copy was made.
 -
-Component by Jack Hymowitz, August 20, 2020
+Component by Jack Hymowitz, August 29, 2020
 
     Args:
         _run: Set to true to enable the excel application, false saves the open sheet and stops the application
@@ -38,9 +38,9 @@ Component by Jack Hymowitz, August 20, 2020
         excel: The Excel COM interface created, or None if not running
 """
 
-ghenv.Component.Name = "BT_OpenXLWorkbook"
+ghenv.Component.Name = "BT_XLOpenWorkbook"
 ghenv.Component.NickName = "Open XL Workbook"
-ghenv.Component.Message = 'AUG_20_2020'
+ghenv.Component.Message = 'AUG_29_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
