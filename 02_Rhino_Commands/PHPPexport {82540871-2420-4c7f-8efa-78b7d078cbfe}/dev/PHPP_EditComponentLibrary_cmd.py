@@ -872,4 +872,4 @@ def RunCommand( is_interactive ):
     dialog.main()
 
 # Use for debuging in editor
-RunCommand(True)
+#RunCommand(True)

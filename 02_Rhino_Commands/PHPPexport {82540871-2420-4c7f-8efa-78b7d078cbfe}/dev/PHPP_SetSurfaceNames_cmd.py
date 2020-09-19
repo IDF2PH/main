@@ -59,7 +59,6 @@ class Model:
         setYs = []
         setZs = []
         Centroids = []
-        CentroidsX = []
         
         for srfc in _srfcs:
             windowBrep = rs.coercebrep(srfc)
@@ -72,7 +71,6 @@ class Model:
                 setYs.append( srfcNormal.Y )
                 setZs.append( srfcNormal.Z )
                 Centroids.append( srfcCentroid )
-                CentroidsX.append(srfcCentroid.X)
         
         # Find the average Normal Vector of the set
         px = sum(setXs) / len(setXs)
@@ -82,7 +80,6 @@ class Model:
         
         # Find a line through all the points and its midpoint
         fitLine = rs.LineFitFromPoints(Centroids)
-        newLine = Rhino.Geometry.Line(fitLine.From, fitLine.To)
         
         # Find the Midpoint of the Line
         midX = (fitLine.From.X + fitLine.To.X) / 2
@@ -117,8 +114,12 @@ class Model:
         # when viewed from the 'outside'
         
         if len(_srfcs)>1:
-            centroidSet = self._findWindowPlane(_srfcs)
-            orderedSrfcs = [x for _,x in sorted(zip(centroidSet, _srfcs))]
+            try:
+                centroidSet = self._findWindowPlane(_srfcs)
+                orderedSrfcs = [x for _,x in sorted(zip(centroidSet, _srfcs))]
+            except:
+                print('Error finding the centroids and order of the surfaces.')
+                orderedSrfcs = _srfcs
         else:
             orderedSrfcs = _srfcs
         
