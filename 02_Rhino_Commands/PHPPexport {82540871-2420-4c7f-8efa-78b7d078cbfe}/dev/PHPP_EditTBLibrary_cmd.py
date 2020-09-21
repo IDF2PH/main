@@ -26,7 +26,7 @@ such as windows, frames, glasss. This uses a Model-View-Controller configuration
 mostly just cus' I wanted to test that out. Might be way overkill for something like
 this... but was fun to build.
 -
-EM August 16, 2020
+EM September 21, 2020
 """
 
 import rhinoscriptsyntax as rs
@@ -102,7 +102,7 @@ class Model:
         except:
             print 'ID was not an integer?!?! Enter valid Int for ID-Number'
             return 1
-        
+    
     def setGroupContent(self):
         # Set up the Content to display
         gr1 = Group()
@@ -259,6 +259,13 @@ class Model:
                         }
                 rs.SetDocumentUserText("PHPP_lib_PsiInstall_{:02d}".format(i+1), json.dumps(newTB) )
     
+    
+    
+    #TODO: Fix / Revise all this eval and read from Excel stuff
+    # so that it works like the Component Dialog ones.....
+    
+    
+    
     def _determineInputUnits(self, _inputString):
         # If its just a number, its SI so just pass it along
         # otherwise, pull out the numerical values and the non-numeric values
@@ -306,6 +313,10 @@ class Model:
     
     def determineDisplayVal(self, _inputVal, _displayColumnUnit):
         """ Decide how to show the value in the cell """
+        
+        # If it a 'name' field, don't want to do any conversions
+        if _displayColumnUnit is None:
+            return _inputVal
         
         try:
             val, inputUnit = self._determineInputUnits(_inputVal)
@@ -444,7 +455,7 @@ class View(Eto.Forms.Dialog):
         self.Title = "PHPP Thermal Bridge Libraries"
         self.Padding = Eto.Drawing.Padding(15)
         self.Resizable = True
-
+    
     def _getHeaderDisplayName(self, _in):
         headerNames = {'Name': 'Name',
         'psiValue': 'Psi-Value\n(w/mk)',
@@ -670,8 +681,9 @@ class Controller:
                 colUnit = each.Value
         
         # Get the input value, decide what to do with it
-        print e.Row, e.Column
-        print sender.DataStore.Item[e.Row][e.Column]
+        #print e.Row, e.Column
+        #print sender.DataStore.Item[e.Row][e.Column]
+        
         inputVal = sender.DataStore.Item[e.Row][e.Column]
         displayVal = self.model.determineDisplayVal(inputVal, colUnit)
         

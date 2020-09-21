@@ -26,7 +26,7 @@ including window Psi-Installs. This uses a Model-View-Controller configuration
 mostly just cus' I wanted to test that out. Might be way overkill for something like
 this... but was fun to build.
 -
-EM August 21, 2020
+EM September 21, 2020
 """
 
 import rhinoscriptsyntax as rs
@@ -483,6 +483,9 @@ class Model:
     
     def determineDisplayVal(self, _inputVal, _displayColumnUnit):
         """ Decide how to show the value in the cell """
+        # If it a 'name' field, don't want to do any conversions
+        if _displayColumnUnit is None:
+            return _inputVal
         
         try:
             val, inputUnit = self._determineInputUnits(_inputVal)
