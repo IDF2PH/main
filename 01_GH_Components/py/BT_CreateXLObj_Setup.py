@@ -23,16 +23,18 @@
 Takes inputs from the GH Scene and creates all the Excel-ready objects for writing to the PHPP
 Each 'excel-ready' object has a Value, a Cell Range ('A4', 'BB56', etc...) and a Sheet Name
 -
-EM August 20, 2020
+EM September 27, 2020
     Args:
         verification_: <Optional> 'Verification' Worksheet Items. Connect to the 'verification_' output from the 'PHPP Setup' Component
         climate_:  <Optional> 'Climate' Worksheet Items. Connect to the 'climate_' output from the 'PHPP Setup' Component
         airtightness_: <Optional> Envelope airtightness values for the 'Ventilation' Worksheet . Connect to the 'airtightness_' output from the 'PHPP Setup' Component
         ventilationSingle_: <Optional> Attach a single 'PHPP | Ventilation' components. Items for a simple fresh-air ventilation system for the 'Ventilation' worksheet. Connect to the 'ventilation_' output of the 'Ventilation' Component
         Heating_Cooling_: <Optional> Items for simple heating and cooling systems inputs. Connect to the 'Heating_Cooling_' output on the 'Heating / Cooling Equipment' Component
-        summerVent_: <Optional> Set to 'True' to use the default values for a modest amount of summer ventilation, or leave empty to leave the worksheet blank. If True, will set both daytime and nightime window ventilation to be +50% the HRV/ERV winter value. 
-----
-If you prefer, simply enter a number here for the ACH (Air changes per hour) of window ventilation to enter. Note that if you only enter a single value, the daytime and nightime values will be set to this value. If you pass in 2 values in a multiline entry, the first value will be use for the daytime ACH and the second will be used for the nightime ACH.
+        summerVent_: <Optional> This input will work in several different ways:
+        >   1) Leave empty to leave the worksheet blank.
+        >   2) Set to 'True' (boolean) to use the default values for a modest amount of summer ventilation. If 'True', will set both daytime and nightime window ventilation to be +50% the HRV/ERV winter value.
+        >   3) Simply enter a number here for the ACH (Air changes per hour) of total window ventilation in the building. If you only enter a single value, both the daytime and nightime values will be set to this value. 
+        >   4) If you input in 2 values in a multiline entry, the first value will be use for the daytime ACH and the second will be used for the nightime ACH.
         dhw_: <Optional>
     Returns:
         toPHPP_Setup_: A DataTree of the final clean, Excel-Ready output objects. Each output object has a Worksheet-Name, a Cell Range, and a Value. Connect to the 'Setup_' input on the 'Write 2PHPP' Component to write to Excel.
@@ -40,7 +42,7 @@ If you prefer, simply enter a number here for the ACH (Air changes per hour) of 
 
 ghenv.Component.Name = "BT_CreateXLObj_Setup"
 ghenv.Component.NickName = "Create Excel Obj - Setup"
-ghenv.Component.Message = 'AUG_20_2020'
+ghenv.Component.Message = 'SEP_27_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -229,6 +231,7 @@ if Heating_Cooling_.Branches:
 #-------------------------------------------------------------------------------
 # MECH
 mech = []
+hp_count = 0
 if Heating_Cooling_.Branches: # If there are any mechanical equipment objects
     #---------------------------------------------------------------------------
     # Boiler
@@ -238,7 +241,55 @@ if Heating_Cooling_.Branches: # If there are any mechanical equipment objects
         mech.append( PHPP_XL_Obj('Boiler', 'M31', Heating_Cooling_.Branch(1)[0].Boiler.UseTypicalValues)) 
     
     #---------------------------------------------------------------------------
-    # Cooling Units
+    if Heating_Cooling_.Branch(1)[0].HP_Options:
+        print dir(Heating_Cooling_.Branch(1)[0].HP_Options)
+        mech.append( PHPP_XL_Obj('HP', 'M22', Heating_Cooling_.Branch(1)[0].HP_Options.Distribution))
+        mech.append( PHPP_XL_Obj('HP', 'M27', Heating_Cooling_.Branch(1)[0].HP_Options.NominalPower))
+        mech.append( PHPP_XL_Obj('HP', 'M28', Heating_Cooling_.Branch(1)[0].HP_Options.RadExponent))
+        mech.append( PHPP_XL_Obj('HP', 'M42', Heating_Cooling_.Branch(1)[0].HP_Options.BackupType))
+        mech.append( PHPP_XL_Obj('HP', 'M43', Heating_Cooling_.Branch(1)[0].HP_Options.ElecFlowWater_dT))
+        mech.append( PHPP_XL_Obj('HP', 'M46', Heating_Cooling_.Branch(1)[0].HP_Options.Priority))
+        mech.append( PHPP_XL_Obj('HP', 'M48', Heating_Cooling_.Branch(1)[0].HP_Options.Control))
+        mech.append( PHPP_XL_Obj('HP', 'M50', Heating_Cooling_.Branch(1)[0].HP_Options.GroundWaterDepth))
+        mech.append( PHPP_XL_Obj('HP', 'M51', Heating_Cooling_.Branch(1)[0].HP_Options.GroundPumpPower))
+    
+    # Heating Equipment | Space Heating Heat-Pump
+    if Heating_Cooling_.Branch(1)[0].HP_heating:
+        hp_count +=1
+        mech.append( PHPP_XL_Obj('HP', 'J21', '4-' + Heating_Cooling_.Branch(1)[0].HP_heating.Name))
+        mech.append( PHPP_XL_Obj('HP', 'I635', Heating_Cooling_.Branch(1)[0].HP_heating.Name)) 
+        mech.append( PHPP_XL_Obj('HP', 'I637', Heating_Cooling_.Branch(1)[0].HP_heating.Source)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_heating.T_Source):
+            mech.append( PHPP_XL_Obj('HP', 'K{}'.format(i+640), item)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_heating.T_Sink):
+            mech.append( PHPP_XL_Obj('HP', 'L{}'.format(i+640), item)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_heating.HC):
+            mech.append( PHPP_XL_Obj('HP', 'M{}'.format(i+640), item)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_heating.COP):
+            mech.append( PHPP_XL_Obj('HP', 'N{}'.format(i+640), item)) 
+        mech.append( PHPP_XL_Obj('HP', 'M658', Heating_Cooling_.Branch(1)[0].HP_heating.dT_Sink)) 
+    
+    #---------------------------------------------------------------------------
+    # Equipment | DHW Heat-Pump
+    if Heating_Cooling_.Branch(1)[0].HP_dhw:
+        hp_count += 1
+        mech.append( PHPP_XL_Obj('HP', 'J36', '5-' + Heating_Cooling_.Branch(1)[0].HP_dhw.Name))
+        mech.append( PHPP_XL_Obj('HP', 'I665', Heating_Cooling_.Branch(1)[0].HP_dhw.Name))
+        mech.append( PHPP_XL_Obj('HP', 'I667', Heating_Cooling_.Branch(1)[0].HP_dhw.Source)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_dhw.T_Source):
+            mech.append( PHPP_XL_Obj('HP', 'K{}'.format(i+670), item)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_dhw.T_Sink):
+            mech.append( PHPP_XL_Obj('HP', 'L{}'.format(i+670), item)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_dhw.HC):
+            mech.append( PHPP_XL_Obj('HP', 'M{}'.format(i+670), item)) 
+        for i, item in enumerate(Heating_Cooling_.Branch(1)[0].HP_dhw.COP):
+            mech.append( PHPP_XL_Obj('HP', 'N{}'.format(i+670), item)) 
+        mech.append( PHPP_XL_Obj('HP', 'M688', Heating_Cooling_.Branch(1)[0].HP_dhw.dT_Sink)) 
+    
+    mech.append( PHPP_XL_Obj('HP', 'M18', 2 if hp_count==2 else 1)) # Can't ever be zero
+    
+    #---------------------------------------------------------------------------
+    # Cooling Equipment
     if Heating_Cooling_.Branch(1)[0].SupplyAirCooling:
         onOff, maxPower, seer = Heating_Cooling_.Branch(1)[0].SupplyAirCooling.getValsForPHPP()
         mech.append( PHPP_XL_Obj('Cooling units', 'I15', 'x' ))
