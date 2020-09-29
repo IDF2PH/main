@@ -22,8 +22,9 @@
 """
 Set the control options for a Air- or Water-Source Heat Pump (HP). Sets the values on the 'HP' worksheet.
 -
-EM September 27, 2020
+EM September 29, 2020
     Args:
+        _designForwardWaterTemp: (Deg C) Default=35. If using the PHI 'Heat Pump Tool', input the Design Forward Temp from the 'Main Results' worksheet here. Usually like 25-30 Deg C. This value will get set back on the 'DHW' worksheet. Don't ask me what this is or why it's done this way. I'm just just followin' the tool here...
         hp_distribution_: The Heat Pump heating distribution method. Input either:
 > "1-Underfloor heating"
 > "2-Radiators"
@@ -48,7 +49,7 @@ EM September 27, 2020
 
 ghenv.Component.Name = "BT_Heating_ASHP_Options"
 ghenv.Component.NickName = "Heating | HP Options"
-ghenv.Component.Message = 'SEP_27_2020'
+ghenv.Component.Message = 'SEP_29_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "01 | Model"
@@ -61,9 +62,10 @@ preview = sc.sticky['Preview']
 
 #-------------------------------------------------------------------------------
 class HP_Options:
-    def __init__(self, _dist='3-Supply air heating', _pow=None, _rExp=None, 
+    def __init__(self, _forwardTemp=35, _dist='3-Supply air heating', _pow=None, _rExp=None, 
                 _backup='1-Elec. Immersion heater', _dtWater=None, _pior='1-DHW-priority', 
                 _c='1-On/Off', _dpth=None, _pumpPow=None):
+        self.DesignForwardWaterTemp = _forwardTemp
         self.Distribution = _dist
         self.NominalPower = _pow
         self.RadExponent = _rExp
@@ -79,9 +81,19 @@ class HP_Options:
     def __str__(self):
         return unicode(self).encode('utf-8')
     def __repr__(self):
-        return "{}( _dist={!r})".format(
+        return "{}( _forwardTemp={!r}, _dist={!r}, _pow={!r}, _rExp={!r},"\
+        "_backup={!r}, _dtWater={!r}, _pior={!r}, _c={!r}, _dpth={!r}, _pumpPow={!r})".format(
                self.__class__.__name__,
-               self.Distribution)
+               self.DesignForwardWaterTemp,
+                self.Distribution,
+                self.NominalPower,
+                self.RadExponent,
+                self.BackupType,
+                self.ElecFlowWater_dT,
+                self.Priority,
+                self.Control,
+                self.GroundWaterDepth,
+                self.GroundPumpPower)
 
 def clean_dist(_in):
     input_str = str(_in)
@@ -139,6 +151,7 @@ hp_control = clean_control(hp_control_)
 
 #-------------------------------------------------------------------------------
 hpOptions_ = HP_Options(
+                    checkInput(_designForwardWaterTemp, '_designForwardWaterTemp'),
                     hp_distribution,
                     checkInput(nom_power_, 'nom_power_'),
                     checkInput(rad_exponent_, 'rad_exponent_'),

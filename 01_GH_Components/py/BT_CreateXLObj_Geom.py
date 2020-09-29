@@ -24,7 +24,7 @@ Takes in the E+ objects from the IDF-->PHPP Component and creates simplied
 Excel-ready objects for writing to the PHPP
 Each 'excel-ready' object has a Value, a Cell Range ('A4', 'BB56', etc...) and a Sheet Name
 -
-EM August 22, 2020
+EM September 29, 2020
 
     Args:
         _PHPPObjs: A DataTree of the PHPP Objects to write out to Excel. Connect to the 'PHPPObjs_' in the 'IDF->PHPP Objs' Component.
@@ -49,7 +49,7 @@ EM August 22, 2020
 
 ghenv.Component.Name = "BT_CreateXLObj_Geom"
 ghenv.Component.NickName = "Create Excel Obj - Geom"
-ghenv.Component.Message = 'AUG_22_2020'
+ghenv.Component.Message = 'SEP_29_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -74,6 +74,8 @@ PHPP_DHW_usage = sc.sticky['PHPP_DHW_usage']
 PHPP_DHW_branch_piping = sc.sticky['PHPP_DHW_branch_piping']
 PHPP_DHW_tank = sc.sticky['PHPP_DHW_tank']
 PHPP_DHW_RecircPipe = sc.sticky['PHPP_DHW_RecircPipe']
+
+#-------------------------------------------------------------------------------
 
 def getUvalues(_inputBranch):
     uID_Count = 1
@@ -1251,7 +1253,94 @@ def getLocation(_locationObjs):
     
     return climate
 
-##########################################
+def getAppliances(_appliances, _zones):
+    print("Creating the 'Appliance' obejcts...")
+    apps = []
+    
+    # First, turn all the appliances off
+    useRows = [14, 16, 18, 21, 22, 23, 24, 31, 32, 33]
+    for rowNum in useRows:
+        apps.append( PHPP_XL_Obj('Electricity', 'F{}'.format(rowNum), 0) )
+    
+    #---------------------------------------------------------------------------
+    # Basic Appliances
+    for appliance in _appliances:
+        if appliance.Zone not in _zones:
+            continue
+        
+        if 'dishwasher' in appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F14', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'H14', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'J14', appliance.NominalDemand) )
+            apps.append( PHPP_XL_Obj('Electricity', 'D15', appliance.Type) )
+        elif 'clothesWasher' in appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F16', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'H16', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'J16', appliance.NominalDemand) )
+            apps.append( PHPP_XL_Obj('Electricity', 'N16', appliance.UtilizationFactor) )
+            apps.append( PHPP_XL_Obj('Electricity', 'D17', appliance.Type) )
+        elif 'clothesDryer' in appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F18', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'H18', 1) )
+            if 'GAS' in appliance.Type.upper():
+                apps.append( PHPP_XL_Obj('Electricity', 'J19', appliance.NominalDemand) )
+            else:
+                apps.append( PHPP_XL_Obj('Electricity', 'J18', appliance.NominalDemand) )
+            apps.append( PHPP_XL_Obj('Electricity', 'D19', appliance.Type) )
+            apps.append( PHPP_XL_Obj('Electricity', 'L19', 0.60) )
+        elif 'fridge' == appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F21', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'H21', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'J21', appliance.NominalDemand) )
+        elif 'freezer' == appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F22', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'H22', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'J22', appliance.NominalDemand) )
+        elif 'fridgeFreezer' == appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F23', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'H23', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'J23', appliance.NominalDemand) )
+        elif 'cooking' in appliance.Name:
+            apps.append( PHPP_XL_Obj('Electricity', 'F24', 1) )
+            apps.append( PHPP_XL_Obj('Electricity', 'J24', appliance.NominalDemand) )
+            apps.append( PHPP_XL_Obj('Electricity', 'D25', appliance.Type) )
+    
+    #---------------------------------------------------------------------------
+    # Harder Appliances
+    
+    # For consumer elev, figure out the floor area normalized avg value for all zones
+    consumerElec = [ _ for _ in _appliances if 'consumerElec' in _.Name]
+    totalFA = sum([_.ZoneFloorArea for _ in consumerElec])
+    totalCExFA = sum([(_.ZoneFloorArea * _.NominalDemand) for _ in consumerElec])
+    apps.append( PHPP_XL_Obj('Electricity', 'J27', (totalCExFA / totalFA) ))
+    
+    # For 'other' user-determined type elec equip / appliances
+    others = [ _ for _ in _appliances if 'ud__' in _.Name]
+    others = others[0:3]
+    
+    if len(others)>3:
+        msg = 'It looks like you have more than 3 "Other" Electric Equipment elements\n'\
+        'that you are trying to add. PHPP "Electricity" worksheet only allows 3 though.\n'\
+        'For now I will just take the first three. Try and consolidate your equipment.'
+        ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, msg)
+    
+    for i, each in enumerate(others):
+        apps.append( PHPP_XL_Obj('Electricity', 'D{}'.format(i+31), each.Name) )
+        apps.append( PHPP_XL_Obj('Electricity', 'F{}'.format(i+31), 1) )
+        apps.append( PHPP_XL_Obj('Electricity', 'H{}'.format(i+31), 1) )
+        apps.append( PHPP_XL_Obj('Electricity', 'J{}'.format(i+31), each.NominalDemand) )
+    
+    return apps
+
+def getPHPPLighting(_lighting, _zones):
+    lighting = [ _ for _ in _lighting if _.Zone in _zones] # Filter
+    lightingXfa = sum([ (_.NominalDemand * _.ZoneFloorArea) for _ in lighting])
+    total_zone_FA = sum([_.ZoneFloorArea for _ in lighting])
+    avg_lighting_eff =  lightingXfa / total_zone_FA
+    
+    return [ PHPP_XL_Obj('Electricity', 'L26', avg_lighting_eff) ]
+
+#-------------------------------------------------------------------------------
 # Figure out the right Rows to start writing
 # Modify values based on user input (if any)
 startRows = {'Additional Ventilation': 
@@ -1271,7 +1360,7 @@ startRows = {'Additional Ventilation':
 if len(udRowStarts_)>0:
     startRows = updateStartRows(startRows, udRowStarts_)
 
-##########################################
+#-------------------------------------------------------------------------------
 # Sort out which zones to include in the output
 # Filter out any zones not to include
 if _PHPPObjs.BranchCount>0:
@@ -1282,7 +1371,7 @@ if _PHPPObjs.BranchCount>0:
         zones = [x for x in zones if filterName(x, zoneExclude_)]
     print 'Inlcuding Zones {} in the Export'.format(zones)
 
-##########################################
+#-------------------------------------------------------------------------------
 # Construct the Excel-Ready Write Objects
 toPHPP_Geom_ = DataTree[Object]() # Master tree to hold all the results
 if _PHPPObjs.BranchCount != 0:
@@ -1300,8 +1389,10 @@ if _PHPPObjs.BranchCount != 0:
     dhw                             = getDHWSystem( _PHPPObjs.Branch(10), zones )
     nonRes_Elec                     = getNonResRoomData( _PHPPObjs.Branch(6), zones, startRows )
     location                        = getLocation( _PHPPObjs.Branch(12) )
+    elec_equip_appliance            = getAppliances( _PHPPObjs.Branch(13), zones )
+    phpp_lighting                   = getPHPPLighting( _PHPPObjs.Branch(14), zones )
     
-    ##########################################
+    #---------------------------------------------------------------------------
     # Add all the Excel-Ready Objects to a master Tree for outputting / passing
     toPHPP_Geom_.AddRange(uValuesList, GH_Path(0))
     toPHPP_Geom_.AddRange(winComponentsList, GH_Path(1))
@@ -1317,8 +1408,10 @@ if _PHPPObjs.BranchCount != 0:
     toPHPP_Geom_.AddRange(dhw, GH_Path(11)) 
     toPHPP_Geom_.AddRange(nonRes_Elec, GH_Path(12))
     toPHPP_Geom_.AddRange(location, GH_Path(13))
+    toPHPP_Geom_.AddRange(elec_equip_appliance, GH_Path(14))
+    toPHPP_Geom_.AddRange(phpp_lighting, GH_Path(15))
     
-    ##########################################
+    #---------------------------------------------------------------------------
     # Give Warnings
     if len(toPHPP_Geom_.Branch(2))/10 > 100:
         AreasWarning = 'Warning: It looks like you have {:.0f} surfaces in the model. By Default\n'\

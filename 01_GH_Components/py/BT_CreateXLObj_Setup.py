@@ -23,7 +23,7 @@
 Takes inputs from the GH Scene and creates all the Excel-ready objects for writing to the PHPP
 Each 'excel-ready' object has a Value, a Cell Range ('A4', 'BB56', etc...) and a Sheet Name
 -
-EM September 27, 2020
+EM September 29, 2020
     Args:
         verification_: <Optional> 'Verification' Worksheet Items. Connect to the 'verification_' output from the 'PHPP Setup' Component
         climate_:  <Optional> 'Climate' Worksheet Items. Connect to the 'climate_' output from the 'PHPP Setup' Component
@@ -42,7 +42,7 @@ EM September 27, 2020
 
 ghenv.Component.Name = "BT_CreateXLObj_Setup"
 ghenv.Component.NickName = "Create Excel Obj - Setup"
-ghenv.Component.Message = 'SEP_27_2020'
+ghenv.Component.Message = 'SEP_29_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -243,6 +243,8 @@ if Heating_Cooling_.Branches: # If there are any mechanical equipment objects
     #---------------------------------------------------------------------------
     if Heating_Cooling_.Branch(1)[0].HP_Options:
         print dir(Heating_Cooling_.Branch(1)[0].HP_Options)
+        
+        mech.append( PHPP_XL_Obj('DHW+Distribution', 'J30', Heating_Cooling_.Branch(1)[0].HP_Options.DesignForwardWaterTemp))
         mech.append( PHPP_XL_Obj('HP', 'M22', Heating_Cooling_.Branch(1)[0].HP_Options.Distribution))
         mech.append( PHPP_XL_Obj('HP', 'M27', Heating_Cooling_.Branch(1)[0].HP_Options.NominalPower))
         mech.append( PHPP_XL_Obj('HP', 'M28', Heating_Cooling_.Branch(1)[0].HP_Options.RadExponent))

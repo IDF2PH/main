@@ -22,7 +22,7 @@
 """
 Set the parameters for a Air- or Water-Source Heat Pump (HP). Sets the values on the 'HP' worksheet.
 -
-EM September 27, 2020
+EM September 29, 2020
     Args:
         _unit_name: The name for the heat pump unit
         _source: The Heat Pump exterior 'source'. Input either:
@@ -42,7 +42,7 @@ EM September 27, 2020
 
 ghenv.Component.Name = "BT_Heating_ASHP"
 ghenv.Component.NickName = "Heating | HP"
-ghenv.Component.Message = 'SEP_27_2020'
+ghenv.Component.Message = 'SEP_29_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "01 | Model"

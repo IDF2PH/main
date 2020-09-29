@@ -22,7 +22,7 @@
 """
 This component stores a library of values (Loads and Schedules) which match the typical Single Family (SF) residential loads found in the PNNL sample IDF files provided by the U.S. Dept of Energy. These sample files can be found online at https://www.energycodes.gov/development/residential/iecc_models all values here are from the 2018 IECC, Zone 4a IDF Sampe file.
 -
-EM Sept. 03, 2020
+EM Sept. 28, 2020
 
     Args:
         _HBZones: Honeybee Zones to apply this leakage rate to. Note, this should be the set of all the zones which were tested together as part of a Blower Door test. IE: if the blower door test included Zones A, B, and C then all three zones should be passed in here together. Use 'Merge' to combine zones if need be.
@@ -45,7 +45,7 @@ EM Sept. 03, 2020
 
 ghenv.Component.Name = "BT_PNLL_Resi_Loads"
 ghenv.Component.NickName = "PNLL Resi Loads & Schedules"
-ghenv.Component.Message = 'SEP_03_2020'
+ghenv.Component.Message = 'SEP_28_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "01 | Model"
