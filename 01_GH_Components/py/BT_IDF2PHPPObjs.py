@@ -51,6 +51,8 @@ import ghpythonlib.components as ghc
 import math
 import copy
 from collections import defaultdict
+import rhinoscriptsyntax as rs
+from collections import namedtuple
 
 # Classes and Defs
 preview=sc.sticky['Preview']
@@ -557,6 +559,48 @@ def get_phpp_lighting(_zones):
     
     return lighting
 
+def calcFootprint(_zoneObjs, _opaqueSurfaces):
+    # Finds the 'footprint' of the building for 'Primary Energy Renewable' reference
+    # 1) Re-build the zone Breps
+    # 2) Join all the zone Breps into a single brep
+    # 3) Find the 'box' for the single joined brep
+    # 4) Find the lowest Z points on the box, offset another 10 units 'down'
+    # 5) Make a new Plane at this new location
+    # 6) Projects the brep onto the new Plane
+    
+    #-----
+    zoneBreps = []
+    for zone in _zoneObjs:    
+        zoneSurfaces = []
+        for srfc in _opaqueSurfaces:
+            if srfc.HostZoneName == zone.ZoneName:
+                zoneSurfaces.append( ghc.BoundarySurfaces(srfc.Boundary) )
+        zoneBrep = ghc.BrepJoin( zoneSurfaces ).breps
+        zoneBreps.append( zoneBrep )
+    
+    bldg_mass = ghc.SolidUnion(zoneBreps)
+    
+    if bldg_mass == None:
+        return None
+    
+    #------- Find Corners, Find 'bottom' (lowest Z)
+    bldg_mass_corners = [v for v in ghc.BoxCorners(bldg_mass)]
+    bldg_mass_corners.sort(reverse=False, key=lambda point3D: point3D.Z)
+    rect_pts = bldg_mass_corners[0:3]
+    
+    #------- Project Brep to Footprint
+    projection_plane1 = ghc.Plane3Pt(rect_pts[0], rect_pts[1], rect_pts[2])
+    projection_plane2 = ghc.Move(projection_plane1, ghc.UnitZ(-10)).geometry
+    matrix = rs.XformPlanarProjection(projection_plane2)
+    footprint_srfc = rs.TransformObjects (bldg_mass, matrix, copy=True)
+    footprint_area = rs.Area(footprint_srfc)
+    
+    #------- Output
+    Footprint = namedtuple('Footprint', ['Footprint_surface', 'Footprint_area'])
+    fp = Footprint(footprint_srfc, footprint_area)
+    
+    return fp
+
 
 #-------------------------------------------------------------------------------
 ##### Read the IDF Objects and Build class objects  ##########
@@ -590,6 +634,7 @@ if len(_HBZones)>0 and len(_IDF_Objs_List)>1:
     
     # Calc and  set Zone Attributes
     buildZoneBrep(zones, opaqueSurfaces)  # Build the Zone Breps and add to Zone Objects
+    footprint = calcFootprint(zones, opaqueSurfaces)
     calcZoneParams(zonesList, zones, opaqueSurfaces, HBZonePHPPRooms, HBZoneObjects)   # Determine Infiltation and add to Zone Objects
     dhwSystemObj = getDHWSys(HBZoneObjects)
     groundObjs = getGround(HBZoneObjects)
@@ -599,6 +644,9 @@ else:
     HBZonePHPPRooms, HBZoneVentSystems = [], []
     dhwSystemObj = []
     groundObjs = []
+    elec_equip_appliances = []
+    phpp_lighting = []
+    footprint = []
 
 # Figure out the Closest PHPP Climate Zone
 latitude = float(getattr(location, 'Latitude {deg}', 51.30))
@@ -636,6 +684,7 @@ PHPPObjs_.AddRange(groundObjs, GH_Path(11))
 PHPPObjs_.AddRange(climate, GH_Path(12)) 
 PHPPObjs_.AddRange(elec_equip_appliances, GH_Path(13)) 
 PHPPObjs_.AddRange(phpp_lighting, GH_Path(14)) 
+PHPPObjs_.Add(footprint, GH_Path(15)) 
 
 #-------------------------------------------------------------------------------
 # Output Preview of Zone Names

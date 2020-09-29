@@ -1340,6 +1340,16 @@ def getPHPPLighting(_lighting, _zones):
     
     return [ PHPP_XL_Obj('Electricity', 'L26', avg_lighting_eff) ]
 
+def getFootprint(_fp):
+    try:
+        fp_area = _fp[0].Footprint_area
+        fpObj = PHPP_XL_Obj('Areas', 'V33', fp_area)
+    except:
+        fpObj = PHPP_XL_Obj('Areas', 'V33', 0)
+    
+    return [ fpObj ]
+
+
 #-------------------------------------------------------------------------------
 # Figure out the right Rows to start writing
 # Modify values based on user input (if any)
@@ -1391,6 +1401,7 @@ if _PHPPObjs.BranchCount != 0:
     location                        = getLocation( _PHPPObjs.Branch(12) )
     elec_equip_appliance            = getAppliances( _PHPPObjs.Branch(13), zones )
     phpp_lighting                   = getPHPPLighting( _PHPPObjs.Branch(14), zones )
+    footprint                       = getFootprint( _PHPPObjs.Branch(15) )
     
     #---------------------------------------------------------------------------
     # Add all the Excel-Ready Objects to a master Tree for outputting / passing
@@ -1410,6 +1421,7 @@ if _PHPPObjs.BranchCount != 0:
     toPHPP_Geom_.AddRange(location, GH_Path(13))
     toPHPP_Geom_.AddRange(elec_equip_appliance, GH_Path(14))
     toPHPP_Geom_.AddRange(phpp_lighting, GH_Path(15))
+    toPHPP_Geom_.AddRange(footprint, GH_Path(16))
     
     #---------------------------------------------------------------------------
     # Give Warnings
