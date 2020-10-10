@@ -22,7 +22,7 @@
 """
 Takes in the IDF 'Objects' from the reader and organizes them for export to the PHPP. Gets all the relevant Materials, Constructions and Surfaces from the IDF file.
 -
-EM September 29, 2020
+EM October 10, 2020
 
     Args:
         _HBZones: <Optional> If connected, the component will try and read detailed 'Frame' and 'Glass' Object data for each window in building. If this isn't hooked up, the normal EP windows will be used to create PHPP-Style Window Components. 
@@ -36,7 +36,7 @@ EM September 29, 2020
 
 ghenv.Component.Name = "BT_IDF2PHPPObjs"
 ghenv.Component.NickName = "IDF-->PHPP Objs"
-ghenv.Component.Message = 'SEP_29_2020'
+ghenv.Component.Message = 'OCT_10_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -332,8 +332,8 @@ def getIDFWindowObjects(_IDF_Objs, _windowConstructionsSimple, _windowMaterialsS
             thisWindowEP_CONST_Name = getattr(eachWindowObj, 'Construction Name')                         # Get the name of the Windows' Construction  
             thisWindowEP_MAT_Name = _windowConstructionsSimple[  thisWindowEP_CONST_Name  ].Layers[0][1]  # Find the Material name of 'Layer 1' in the Window's Construction
             thisWindowEP_WinSimp_Obj = _windowMaterialsSimple[  thisWindowEP_MAT_Name  ]                  # Find the 'WindowMaterial:SimpleGlazingSystem' Object with the same name as 'Layer 1' 
-            winterShadingFactor = 0.75
-            summerShadingFactor = 0.75
+            winterShadingFactor = None
+            summerShadingFactor = None
             
             # Create the new IDF_Obj_surfaceWindow Object
             windowSurfaces.append( IDF_Obj_surfaceWindow(eachWindowObj, thisWindowEP_WinSimp_Obj, winterShadingFactor, summerShadingFactor) )
@@ -361,9 +361,12 @@ def updatePHPPStyleWindows(_zoneObjs, _IDFwindowSurfaces):
                         setattr(IDFwindowObj, 'Type_Glass', phppWindowObj.Type_Glass)
                         setattr(IDFwindowObj, 'Installs', phppWindowObj.Installs)
                         
-                        shadingFactors = phppWindowObj.getShadingFactors_Simple()
-                        setattr(IDFwindowObj, 'winterShadingFac', shadingFactors[0])
-                        setattr(IDFwindowObj, 'summerShadingFac', shadingFactors[1])
+                        shadingDims = phppWindowObj.getShadingDims_Simple()
+                        if shadingDims: IDFwindowObj.setShadingDims_Simple(shadingDims)
+                        
+                        winter, summer = phppWindowObj.getShadingFactors()
+                        if winter: setattr(IDFwindowObj, 'winterShadingFac', winter)
+                        if summer: setattr(IDFwindowObj, 'summerShadingFac', summer)
                     except:
                         pass
                     break

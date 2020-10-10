@@ -22,7 +22,7 @@
 """
 Core Classes and Definitiions for IDF2PHPP Exporter. You must run this component before anything else will work. If you are having trouble when opening a GH file for the first time, try hitting 'Recompute'.
 -
-EM August 20, 2020
+EM October 10, 2020
 """
 
 print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
@@ -37,7 +37,7 @@ print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com>
 
 ghenv.Component.Name = "BT_CORE"
 ghenv.Component.NickName = "IDF2PHPP"
-ghenv.Component.Message = 'AUG_20_2020'
+ghenv.Component.Message = 'OCT_10_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "00 | Core"
@@ -52,7 +52,7 @@ import json
 import random
 import re
 from contextlib import contextmanager
-
+from collections import namedtuple
 
 #-------------------------------------------------------------------------------
 ##########    From HB    ###########
@@ -1026,8 +1026,6 @@ class PHPP_WindowObject:
         self.Geometry = _geom
         self.Type_Variant = _varType
         self.InstallDepth = float(_instDepth)
-        self.OldShadingFac_Winter = 0.75 # Defaults
-        self.OldShadingFac_Summer = 0.75
         
         # Figure out all the geometry and parameter values
         self.setWindowParams()
@@ -1049,36 +1047,78 @@ class PHPP_WindowObject:
         self.AngleFromHoriz = ghc.Degrees(ghc.Angle(self.SurfaceNormal, ghc.UnitZ(1)))[0]
         self.Azimuth = phpp_calcNorthAngle(self.SurfaceNormal, ghc.UnitY(1)) # Assumes Y is North, should get this from Zone....
     
-    def calcShadingFactor_Simple(self, _shadingGeom, _lat=40):
-        self.Winter_ShadingFactor = 0.75
-        self.Summer_ShadingFactor = 0.75
+    def calcShadingDims_Simple(self, _shadingGeom, _limit=99):
+        """ Finds PHPP-Style dimensions to relevant shading objects """
+        
+        ShadingDims = namedtuple('ShadingDims', ['Horizon', 'Overhang', 'Reveal'])
+        if _shadingGeom is None:
+            return ShadingDims(None, None, None)
         
         # ----------------------------------------------------------------------
-        # Find the relevant geometry in the scene and figure out the critical dimensions
-        self.h_hori, self.d_hori, self.Checkline_hori= self.findHorizontalShadingValues(_shadingGeom, 99)
-        self.d_over, self.o_over, self.Checkline_over = self.findOverhangShading(_shadingGeom, 99)
-        self.o_reveal, self.d_reveal, self.Checkline_side1, self.Checkline_side2 = self.findRevealShading(_shadingGeom, 99)
-        
+        # Find the relevant geometry in the scene and figures out the critical dimensions from the window
+        h_hori, d_hori, Checkline_hori = self.findHorizonShadingValues(_shadingGeom, _limit)
+        d_over, o_over, Checkline_over = self.findOverhangShading(_shadingGeom, _limit)
+        o_reveal, d_reveal, Checkline_side1, Checkline_side2 = self.findRevealShading(_shadingGeom, _limit)
         
         # ----------------------------------------------------------------------
-        # Calc the actual Shading Factors based on the geometry found in the scene
-        # This re-creates the PHPP v9.6a shading factor algortithms. I think Andrew Peel made these?
+        # Package for output
+        Horizon = namedtuple('Horizon', ['h_hori', 'd_hori', 'checkline'])
+        Overhang = namedtuple('Overhang', ['d_over', 'o_over', 'checkline'])
+        Reveal = namedtuple('Reveal', ['o_reveal', 'd_reveal', 'checkline1', 'checkline2'])
+        
+        horizon = Horizon( h_hori, d_hori, Checkline_hori )
+        overhang = Overhang( d_over, o_over, Checkline_over )
+        reveal = Reveal( o_reveal, d_reveal, Checkline_side1, Checkline_side2 )
+        
+        self.ShadingDimensions = ShadingDims(horizon, overhang, reveal)
+        return self.ShadingDimensions
+    
+    def calcShadingFactor_Simple(self, _lat=40, _shadingGeom=None, _limit=None):
+        # ----------------------------------------------------------------------
+        # Calc the Shading Factors based on the geometry found in the scene
+        # This re-creates the PHPP v9.6a shading factor algortithms. I think Andrew Peel made these algorithms?
+        
+        if not hasattr(self, 'ShadingDimensions'):
+            self.calcShadingDims_Simple(_shadingGeom, _limit)
+        
         calculator = PHPP_Window_Shading_Calculator(_lat)
         
-        self.OldShadingFac_Winter_Horiz = calculator.Winter_HorizShadingFactor(self.h_hori, self.d_hori, self.AngleFromHoriz, self.Azimuth, self.GlazingHeight )
-        self.OldShadingFac_Summer_Horiz = calculator.Summer_HorizShadingFactor(self.h_hori, self.d_hori, self.AngleFromHoriz, self.Azimuth, self.GlazingHeight )
+        winter_Horiz = calculator.Winter_HorizShadingFactor(self.ShadingDimensions.Horizon.h_hori,
+                                                            self.ShadingDimensions.Horizon.d_hori, 
+                                                            self.AngleFromHoriz, self.Azimuth, self.GlazingHeight )
+        summer_Horiz = calculator.Summer_HorizShadingFactor(self.ShadingDimensions.Horizon.h_hori, 
+                                                            self.ShadingDimensions.Horizon.d_hori,
+                                                            self.AngleFromHoriz, self.Azimuth, self.GlazingHeight )
         
-        self.OldShadingFac_Winter_Reveal = calculator.Winter_RevealShadingFactor(self.o_reveal, self.d_reveal, self.AngleFromHoriz, self.Azimuth, self.GlazingWidth)
-        self.OldShadingFac_Summer_Reveal = calculator.Summer_RevealShadingFactor(self.o_reveal, self.d_reveal, self.AngleFromHoriz, self.Azimuth, self.GlazingWidth)
+        winter_Overhead = calculator.Winter_OverhangShadingFactor(self.ShadingDimensions.Overhang.o_over,
+                                                                  self.ShadingDimensions.Overhang.d_over,
+                                                                  self.AngleFromHoriz, self.Azimuth, self.GlazingHeight  )
+        summer_Overhead = calculator.Summer_OverhangShadingFactor(self.ShadingDimensions.Overhang.o_over,
+                                                                  self.ShadingDimensions.Overhang.d_over,
+                                                                  self.AngleFromHoriz, self.Azimuth, self.GlazingHeight  )
         
-        self.OldShadingFac_Winter_Overhead = calculator.Winter_OverhangShadingFactor(self.o_over, self.d_over, self.AngleFromHoriz, self.Azimuth, self.GlazingHeight  )
-        self.OldShadingFac_Summer_Overhead = calculator.Summer_OverhangShadingFactor(self.o_over, self.d_over, self.AngleFromHoriz, self.Azimuth, self.GlazingHeight  )
+        winter_Reveal = calculator.Winter_RevealShadingFactor(self.ShadingDimensions.Reveal.o_reveal,
+                                                              self.ShadingDimensions.Reveal.d_reveal,
+                                                              self.AngleFromHoriz, self.Azimuth, self.GlazingWidth)
+        summer_Reveal = calculator.Summer_RevealShadingFactor(self.ShadingDimensions.Reveal.o_reveal,
+                                                              self.ShadingDimensions.Reveal.d_reveal,
+                                                              self.AngleFromHoriz, self.Azimuth, self.GlazingWidth)
         
-        self.OldShadingFac_Winter = self.OldShadingFac_Winter_Horiz * self.OldShadingFac_Winter_Reveal * self.OldShadingFac_Winter_Overhead
-        self.OldShadingFac_Summer = self.OldShadingFac_Summer_Horiz * self.OldShadingFac_Summer_Reveal * self.OldShadingFac_Summer_Overhead
+        winter = winter_Horiz * winter_Overhead * winter_Reveal
+        summer = summer_Horiz * summer_Overhead * summer_Reveal
+        return winter, summer
     
-    def getShadingFactors_Simple(self):
-        return self.OldShadingFac_Winter, self.OldShadingFac_Summer
+    def getShadingDims_Simple(self):
+        try:
+            return self.ShadingDimensions
+        except AttributeError as e:
+            return None
+    
+    def getShadingFactors(self):
+        try:
+            return self.ShadingFac_Winter, self.ShadingFac_Summer
+        except AttributeError as e:
+            return None, None
     
     def setShadingFactors(self, _winterFac, _summerFac):
         """Sets Winter and Summer shading Factors. 0=fully shaded, 1=fully unshaded
@@ -1088,8 +1128,8 @@ class PHPP_WindowObject:
         Returns:
             None
         """
-        self.OldShadingFac_Winter = _winterFac
-        self.OldShadingFac_Summer = _summerFac
+        self.ShadingFac_Winter = _winterFac
+        self.ShadingFac_Summer = _summerFac
     
     def getUwInstalled(self):
         """ Caculates the U-W-Installed values for a window using the PHPP method
@@ -1231,7 +1271,7 @@ class PHPP_WindowObject:
         
         return ghc.BoundarySurfaces(InsetCurve)
     
-    def findHorizontalShadingValues(self, _shadingGeom, _extents=99):
+    def findHorizonShadingValues(self, _shadingGeom, _extents=99):
         """
         Arguments:
             _shadingGeom: (list) A list of possible shading objects to test against
@@ -1241,12 +1281,14 @@ class PHPP_WindowObject:
             d_hori: Distance (m) up from the base of the window to the top of any horizontal shading objects found
         """
         
+        #-----------------------------------------------------------------------
         #Find Starting Point
         glazingEdges = self.getEdgesInOrder(self.GlazingSrfc)
         glazingBottomEdge = glazingEdges[0]
         ShadingOrigin = ghc.CurveMiddle( glazingBottomEdge )
         UpVector = ghc.VectorXYZ(0,0,1).vector
         
+        #-----------------------------------------------------------------------
         #Find if there are any shading objects and if so put them in a list
         HorizonShading = []
         
@@ -1256,8 +1298,8 @@ class PHPP_WindowObject:
             if ghc.BrepXCurve(shadingObj, HorizontalLine).points != None:
                 HorizonShading.append( shadingObj )
         
-        ###########
-        #Find any intersection Curves
+        #-----------------------------------------------------------------------
+        #Find any intersection Curves with the shading objects
         IntersectionSurface = ghc.SumSurface(HorizontalLine, VerticalLine)
         IntersectionCurve = []
         IntersectionPoints = []
@@ -1268,8 +1310,8 @@ class PHPP_WindowObject:
         for pnt in IntersectionCurve:
             IntersectionPoints.append(ghc.ControlPoints(pnt).points)
         
-        ###########
-        #Run the Top Corner Finder if there are any intersecting objects...
+        #-----------------------------------------------------------------------
+        #Run the "Top-Corner-Finder" if there are any intersecting objects...
         if len(IntersectionPoints) != 0:
             #Find the top/closets point for each of the objects that could possibly shade
             KeyPoints = []
@@ -1296,8 +1338,8 @@ class PHPP_WindowObject:
             d_hori = math.sqrt(Hypot**2 - h_hori**2)
             CheckLine = ghc.Line(ShadingOrigin, KeyPoint)
         else:
-            h_hori = 0
-            d_hori = 0
+            h_hori = None
+            d_hori = None
             CheckLine = HorizontalLine
         
         return h_hori, d_hori, CheckLine
@@ -1316,15 +1358,18 @@ class PHPP_WindowObject:
         
         #-----------------------------------------------------------------------
         # First, need to filter the scene to find the objects that are 'above'
-        # the window. Create a 'test plane' that is 99m tall and 2m deep, test if
+        # the window. Create a 'test plane' that is _extents (99m) tall and 0.5m past the wall surface, test if
         # any objects intersect that plane. If so, add them to the set of things
         # test in the next step
-        edge1 = ghc.LineSDL(ShadingOrigin, UpVector, 99)
-        edge2 = ghc.LineSDL(ShadingOrigin, self.getSurfaceNormal(self.GlazingSrfc), 2)
+        try: depth = self.InstallDepth + 0.5
+        except: depth = 0.5
+        
+        edge1 = ghc.LineSDL(ShadingOrigin, UpVector, _extents)
+        edge2 = ghc.LineSDL(ShadingOrigin, self.getSurfaceNormal(self.GlazingSrfc), depth)
         intersectionTestPlane = ghc.SumSurface(edge1, edge2)
         
-        OverhangShadingObjs = [x for x in _shadingGeom 
-                        if ghc.BrepXBrep(intersectionTestPlane, x).curves != None]
+        OverhangShadingObjs = (x for x in _shadingGeom 
+                        if ghc.BrepXBrep(intersectionTestPlane, x).curves != None)
         
         #-----------------------------------------------------------------------
         # Using the filtered set of shading objects, find the 'edges' of shading 
@@ -1335,34 +1380,45 @@ class PHPP_WindowObject:
         VerticalLine = ghc.LineSDL(ShadingOrigin, UpVector, _extents)
         
         IntersectionSurface = ghc.SumSurface(HorizontalLine, VerticalLine)
-        IntersectionCurves = [ghc.BrepXBrep(obj, IntersectionSurface).curves 
+        IntersectionCurves = (ghc.BrepXBrep(obj, IntersectionSurface).curves 
                                 for obj in OverhangShadingObjs
-                                if ghc.BrepXBrep(obj, IntersectionSurface).curves != None]
-        IntersectionPoints = []
-        for crv in IntersectionCurves:
-            for pt in ghc.ControlPoints(crv).points:
-                IntersectionPoints.append(pt)
+                                if ghc.BrepXBrep(obj, IntersectionSurface).curves != None)
+        IntersectionPointsList = (ghc.ControlPoints(crv).points for crv in IntersectionCurves)
+        IntersectionPoints = (pt for list_of_pts in IntersectionPointsList for pt in list_of_pts)
         
-        #If there are any intersection Points found, choose the right one to use to calc shading....
-        if len(IntersectionPoints) != 0:
-            #Find the top/closets point for each of the objects that could possibly shade
-            Rays = []
-            Angles = []
-            for i, pt in enumerate(IntersectionPoints):
-                if pt == None:
-                    continue
-                Rays.append(ghc.Vector2Pt(ShadingOrigin, pt, False).vector)
-                Angles.append(ghc.Angle(self.SurfaceNormal , Rays[i]).angle)
-            KeyPoint = IntersectionPoints[Angles.index(min(Angles))]
+        #-----------------------------------------------------------------------
+        # If there are any intersection Points found, choose the right one to use to calc shading....
+        # Find the top/closets point for each of the objects that could possibly shade
+        smallest_angle_found = 2 * math.pi
+        key_point = None
+        
+        for pt in IntersectionPoints:
+            if pt == None:
+                continue
             
-            #use the point it finds to deliver the Height and Distance for the PHPP Shading Calculator
-            d_over = KeyPoint.Z - ShadingOrigin.Z #Vertical distance
-            Hypot = ghc.Length(ghc.Line(ShadingOrigin, KeyPoint))
-            o_over = math.sqrt(Hypot**2 - d_over**2)
-            CheckLine = ghc.Line(ShadingOrigin, KeyPoint)
+            # Protect against Zero-Length error
+            ray = ghc.Vector2Pt(ShadingOrigin, pt, False).vector
+            if ray.Length < 0.001:
+                continue
+            
+            this_ray_angle = ghc.Angle(self.SurfaceNormal , ray).angle
+            if this_ray_angle < 0.001:
+                continue
+            
+            if this_ray_angle <= smallest_angle_found:
+                smallest_angle_found = this_ray_angle
+                key_point = pt
+        
+        #-----------------------------------------------------------------------
+        # Use the 'key point' found to deliver the Height and Distance for the PHPP Shading Calculator
+        if key_point is not None:
+            d_over = key_point.Z - ShadingOrigin.Z                              # Vertical distance
+            Hypot = ghc.Length(ghc.Line(ShadingOrigin, key_point))              # Hypot
+            o_over = math.sqrt(Hypot**2 - d_over**2)                            # Horizontal distance
+            CheckLine = ghc.Line(ShadingOrigin, key_point)
         else:
-            d_over = 0
-            o_over = 0
+            d_over = None
+            o_over = None
             CheckLine = VerticalLine
         
         return d_over, o_over, CheckLine
@@ -1442,8 +1498,8 @@ class PHPP_WindowObject:
             Side1_CheckLine = self.CalcRevealDims(Side1_RevealShaderObjs, Side1_IntersectionSurface, Side1_OriginPt, Side1_Direction)[2]
             NumShadedSides = NumShadedSides + 1
         else:
-            Side1_o_reveal =  0
-            Side1_d_reveal = 0
+            Side1_o_reveal =  None
+            Side1_d_reveal = None
             Side1_CheckLine = Side1_HorizLine
         
         if len(Side2_RevealShaderObjs) != 0:
@@ -1452,8 +1508,8 @@ class PHPP_WindowObject:
             Side2_CheckLine = self.CalcRevealDims(Side2_RevealShaderObjs, Side2_IntersectionSurface, Side2_OriginPt, Side2_Direction)[2]
             NumShadedSides = NumShadedSides + 1
         else:
-            Side2_o_reveal =  0
-            Side2_d_reveal = 0
+            Side2_o_reveal =  None
+            Side2_d_reveal = None
             Side2_CheckLine = Side2_HorizLine
         
         o_reveal = (Side1_o_reveal + Side2_o_reveal )/ max(1,NumShadedSides)
@@ -1611,6 +1667,9 @@ class PHPP_Window_Shading_Calculator():
         self.Latitude = _lat
     
     def Winter_HorizShadingFactor(self, h_hori, d_hori, Tilt, Azimuth, GlazingHeight):
+        if h_hori is None or d_hori is None:
+            return 1
+        
         #Set up the Horiz Constants
         hor_m1 = [0.011953348, 0.011953348, 0.001476536, 0.001476536, -0.001307563, -0.001307563]
         hor_b1 = [-0.261997475, -0.261997475, 0.490848602, 0.490848602, 0.883715765, 0.883715765]
@@ -1734,6 +1793,9 @@ class PHPP_Window_Shading_Calculator():
         return V_Factor_hori
     
     def Winter_RevealShadingFactor(self, o_reveal, d_reveal, Tilt, Azimuth, GlazingWidth):
+        if o_reveal is None or d_reveal is None:
+            return 1
+        
         #Calc the first values
         Ti = o_reveal /(0.5 * GlazingWidth + d_reveal)
         Azimuth_down = (int(Azimuth % 360) / 90) * 90
@@ -1847,6 +1909,9 @@ class PHPP_Window_Shading_Calculator():
         return V_Factor_Reveal
     
     def Winter_OverhangShadingFactor(self, o_over, d_over, Tilt, Azimuth, GlazingHeight):
+        if o_over is None or d_over is None:
+            return 1
+        
         #Set Up Input Values
         Azimuth_down = (int(Azimuth % 360) / 90) * 90
         Ti = o_over / (0.5 * GlazingHeight + d_over)
@@ -1960,6 +2025,9 @@ class PHPP_Window_Shading_Calculator():
         return V_Factor_Overhang
     
     def Summer_HorizShadingFactor(self, h_hori, d_hori, Tilt, Azimuth, GlazingHeight):
+        if h_hori is None or d_hori is None:
+            return 1
+        
         #Clean Input Values
         Azimuth_down = (int(Azimuth % 360) / 90) * 90
         
@@ -2082,6 +2150,9 @@ class PHPP_Window_Shading_Calculator():
         return V_Factor_hori
     
     def Summer_RevealShadingFactor(self, o_reveal, d_reveal, Tilt, Azimuth, GlazingWidth):
+        if o_reveal is None or d_reveal is None:
+            return 1
+            
         #Calc the first values
         Ti = o_reveal /(0.5 * GlazingWidth + d_reveal)
         Azimuth_down = (int(Azimuth % 360) / 90) * 90
@@ -2195,6 +2266,9 @@ class PHPP_Window_Shading_Calculator():
         return V_Factor_Reveal
     
     def Summer_OverhangShadingFactor(self, o_over, d_over, Tilt, Azimuth, GlazingHeight):
+        if o_over is None or d_over is None:
+            return 1
+        
         #Set Up Input Values
         Azimuth_down = (int(Azimuth % 360) / 90) * 90
         Ti = o_over / (0.5 * GlazingHeight + d_over)
@@ -4129,7 +4203,7 @@ class IDF_Obj_surfaceWindow:
     # For holding onto Params for
     # FenestrationSurface:Detailed Objects
     
-    def __init__(self, _idfObj, _winSimpleMat, _wShadFac, _sShadFac):
+    def __init__(self, _idfObj, _winSimpleMat, _wShadFac=None, _sShadFac=None):
         self.Quantity = 1
         self.Name = getattr(_idfObj, 'Name')
         self.Dims = phpp_GetWindowSize(  phpp_geomFromVerts(_idfObj)[1]  )
@@ -4160,6 +4234,21 @@ class IDF_Obj_surfaceWindow:
                 ) 
         
         self.Installs = PHPP_Window_Install(_installs)
+    
+    def setShadingDims_Simple(self, _in):
+        self.ShadingDimensions = _in
+    
+    def getShadingDims_Simple(self):
+        try:
+            return self.ShadingDimensions
+        except AttributeError as e:
+            return None
+    
+    def getShadingFactors(self):
+        try:
+            return self.winterShadingFac, self.summerShadingFac
+        except AttributeError as e:
+            return None
     
     def __unicode__(self):
         return u'FenestrationSurface:Detailed: [{}]'.format(self.Name)

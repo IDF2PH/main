@@ -24,7 +24,7 @@ Takes in the E+ objects from the IDF-->PHPP Component and creates simplied
 Excel-ready objects for writing to the PHPP
 Each 'excel-ready' object has a Value, a Cell Range ('A4', 'BB56', etc...) and a Sheet Name
 -
-EM September 29, 2020
+EM October 10, 2020
 
     Args:
         _PHPPObjs: A DataTree of the PHPP Objects to write out to Excel. Connect to the 'PHPPObjs_' in the 'IDF->PHPP Objs' Component.
@@ -49,7 +49,7 @@ EM September 29, 2020
 
 ghenv.Component.Name = "BT_CreateXLObj_Geom"
 ghenv.Component.NickName = "Create Excel Obj - Geom"
-ghenv.Component.Message = 'SEP_29_2020'
+ghenv.Component.Message = 'OCT_10_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -434,40 +434,43 @@ def getWindows(_inputBranch, _surfacesIncluded, _srfcBranch):
     return winSurfacesList
 
 def getShading(_inputBranch, _surfacesIncluded):
-    shadingRowStart = 17
-    shadingCount = 0
+    def includeWindow(_srf_names, host_srfc_name):
+        return True if host_srfc_name in _srf_names else False
+    
+    row_start = 17
+    row_count = 0
     shadingList = []
     print "Creating the 'Shading' Objects..."
     for window in _inputBranch:
-        # for each Window IDF Object in the model....
-        
-        # First, see if the Window should be included in the output
-        host = getattr(window, 'HostSrfc')
-        includeWindow = False
-        for eachSurfaceName in _surfacesIncluded:
-            if eachSurfaceName == host:
-                includeWindow = True
-                break
-            else:
-                includeWindow = False
-        
-        if includeWindow:
-            # Get the Window's shading Params
-            try:
-                winterShadingFactor = getattr(window, 'winterShadingFac')
-                summerShadingFactor = getattr(window, 'summerShadingFac')
-            except:
-                winterShadingFactor = 0.75
-                summerShadingFactor = 0.75
+        if includeWindow(_surfacesIncluded, getattr(window, 'HostSrfc')):
+            # First, try and get the 'simple' shading geometry if it exists
+            # Otherwise, try and get any direct shading factors applied to the window
+            row = row_start + row_count
+            row_count += 1
+           
+            shadingDims = window.getShadingDims_Simple()
+            if shadingDims:
+                try:
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('Z', row),  shadingDims.Horizon.h_hori))
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AA', row), shadingDims.Horizon.d_hori))
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AB', row), shadingDims.Reveal.o_reveal))
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AC', row), shadingDims.Reveal.d_reveal))
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AD', row), shadingDims.Overhang.o_over))
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AE', row), shadingDims.Overhang.d_over))
+                except Exception as e:
+                    print('Something went wrong getting the Shading Dimension values?')
+                    print(e)
             
-            # Create the PHPP Objects
-            Address1_start = '{}{}'.format('AF', shadingRowStart + shadingCount)
-            Address1_end = '{}{}'.format('AG', shadingRowStart + shadingCount)
-            shadingList.append( PHPP_XL_Obj( 'Shading', Address1_start , winterShadingFactor))
-            shadingList.append( PHPP_XL_Obj( 'Shading', Address1_end , summerShadingFactor))
-            
-            shadingCount += 1
-        
+            shading_factors = window.getShadingFactors()
+            if shading_factors:
+                winter_factor, summer_factor = shading_factors
+                
+                if winter_factor:
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AF', row), winter_factor))
+                
+                if summer_factor:
+                    shadingList.append( PHPP_XL_Obj( 'Shading', '{}{}'.format('AG', row), summer_factor))
+    
     return shadingList
 
 def getTFA(tfaFromUser, tfaBranch, _zones):
