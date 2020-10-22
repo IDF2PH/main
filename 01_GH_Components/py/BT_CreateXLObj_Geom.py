@@ -24,7 +24,7 @@ Takes in the E+ objects from the IDF-->PHPP Component and creates simplied
 Excel-ready objects for writing to the PHPP
 Each 'excel-ready' object has a Value, a Cell Range ('A4', 'BB56', etc...) and a Sheet Name
 -
-EM October 10, 2020
+EM October 21, 2020
 
     Args:
         _PHPPObjs: A DataTree of the PHPP Objects to write out to Excel. Connect to the 'PHPPObjs_' in the 'IDF->PHPP Objs' Component.
@@ -49,7 +49,7 @@ EM October 10, 2020
 
 ghenv.Component.Name = "BT_CreateXLObj_Geom"
 ghenv.Component.NickName = "Create Excel Obj - Geom"
-ghenv.Component.Message = 'OCT_10_2020'
+ghenv.Component.Message = 'OCT_21_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -1257,6 +1257,11 @@ def getLocation(_locationObjs):
     return climate
 
 def getAppliances(_appliances, _zones):
+    
+    if len(_appliances) == 0:
+        return []
+    
+    
     print("Creating the 'Appliance' obejcts...")
     apps = []
     
@@ -1336,6 +1341,9 @@ def getAppliances(_appliances, _zones):
     return apps
 
 def getPHPPLighting(_lighting, _zones):
+    if len(_lighting) == 0:
+        return []
+    
     lighting = [ _ for _ in _lighting if _.Zone in _zones] # Filter
     lightingXfa = sum([ (_.NominalDemand * _.ZoneFloorArea) for _ in lighting])
     total_zone_FA = sum([_.ZoneFloorArea for _ in lighting])
