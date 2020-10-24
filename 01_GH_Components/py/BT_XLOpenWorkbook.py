@@ -25,22 +25,23 @@ Enables the COM interface connecting Rhino to Excel on the user's computer.
 > Copies a file if the target file name doesn't already exist. 
 > Passes the full file name out, along with whether or not a copy was made.
 -
-Component by Jack Hymowitz, August 29, 2020
+Original component by Jack Hymowitz, Pinnacle Scholar Summer Research Student, Stevens Institute of Technology
+Updated October 24, 2020
 
     Args:
         _run: Set to true to enable the excel application, false saves the open sheet and stops the application
-        visibl_e: Set to true to show the Excel application on the screen. Default true.
+        visible_: Set to true to show the Excel application on the screen. Default true.
         useUserWorkbook_: Set to true to look for and use an open excel interface instead of starting a new one. For now, should not be used (set to false or disconnected)
-        oldFilename: The full file path to the source file
-        newDirectory: The location to put the new copied file, or a blank string ("") if newFilename should be a relative location or if newFilename is the entire filepath.
-        newFilename: The destination name to copy the file to (can be the full path if newDirectory is a blank string)
+        _oldFilename: The full file path to the source file
+        _newDirectory: The location to put the new copied file, or a blank string ("") if newFilename should be a relative location or if newFilename is the entire filepath.
+        _newFilename: The destination name to copy the file to (can be the full path if newDirectory is a blank string)
     Returns:
         excel: The Excel COM interface created, or None if not running
 """
 
 ghenv.Component.Name = "BT_XLOpenWorkbook"
 ghenv.Component.NickName = "Open XL Workbook"
-ghenv.Component.Message = 'AUG_29_2020'
+ghenv.Component.Message = 'OCT_24_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "02 | IDF2PHPP"
@@ -136,7 +137,7 @@ class ExcelInstance:
             sheet.Unprotect()
         
         self.ex.ScreenUpdating = True
-        
+    
     def saveAndQuit(self,closeIfUser):
         """Close the running excel instance, and save first
         Args:
@@ -146,14 +147,14 @@ class ExcelInstance:
         self.save()
         self.close(closeIfUser)
         self.quit(closeIfUser)
-        
+    
     def save(self):
         try:
             self.ex.activeWorkbook.Save()
             return True
         except:
             return False
-            
+    
     def close(self, closeIfUser):
         """Close the open excel workbook
         Args:
@@ -165,6 +166,7 @@ class ExcelInstance:
             self.ex.activeWorkbook.Close()
         except:
             pass
+    
     def quit(self, closeIfUser):
         """Stop the running excel instance
         Args:
@@ -175,7 +177,7 @@ class ExcelInstance:
         if self.ex!=None:
             self.ex.Quit()
             ex=None
-        
+    
     def __unicode__(self):
         return u"Excel Instance | Active Worksheet: {self.activeWorkbookName}".format(self=self)
     def __str__(self):
@@ -189,7 +191,8 @@ class ExcelInstance:
 
 class MyComponent(component):
     
-    def StartExcel(self,useUserWorkbook):
+    def StartExcel(self, useUserWorkbook):
+        
         if not "excel" in sc.sticky: #Excel interface isn't already running, so start it
             excel = ExcelInstance()
             if useUserWorkbook:
@@ -199,86 +202,97 @@ class MyComponent(component):
             sc.sticky["excel"]=excel
         else:
             excel = sc.sticky["excel"]
-        return excel
         
+        return excel
+    
     def StopExcel(self):
+        
         if "excel" in sc.sticky:
             print("Quitting")
             excel=sc.sticky["excel"]
+            
             try:
                 excel.saveAndQuit(False)
             except:
                 pass
+            
             del sc.sticky["excel"]
     
-    def doCopy(self, oldFilename,newDirectory,newFilename):
+    def doCopy(self, oldFilename, newDirectory, newFilename):
         
         if not os.path.exists(newDirectory):
             os.mkdir(newDirectory)
-        dest=newDirectory+os.path.sep+newFilename+".xlsx"
+        dest = newDirectory + os.path.sep + newFilename + ".xlsx"
+        
         if os.path.exists(dest):
-            msg1 = "File already copied, not overwritten"
+            msg1 = "File already exists. Writting to this existing file"
             ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Remark, msg1)
             return dest
+        
         try:
-            src=os.path.abspath(oldFilename)
+            src = os.path.abspath(oldFilename)
         except:
-            msg1 = "Source file not found"
+            msg1 = "Source file not found? He sure you provide the full path to the file."
             ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, msg1)
             return None
+        
         try:
-            copyfile(src,dest)
+            copyfile(src, dest)
         except:
-            msg1 = "Unable to copy file"
+            msg1 = "Unable to copy file? Sorry, check file paths and filenames are correct? No stray spaces or returns?"
             ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, msg1)
             return dest
+        
         return dest
     
-    def OpenWorkbook(self,excel,useUserWorkbookDefault,oldFilename,newDirectory,newFilename):
-        if excel:
-            """if useUserWorkbookDefault and excel.userOpened and excel.activeWorkbookName=="NEW_USER_FILE": #If a sheet is already open, set it up
-                if "XLSdata" in sc.sticky: 
-                    del sc.sticky["XLSdata"]
-                excel.loadSheets()
-                excel.activeWorkbookName="USER_FILE"
-            elif useUserWorkbookDefault and excel.userOpened:   #If we already set it up, we are OK
-                pass"""
-            if newFilename:
-                filename=self.doCopy(oldFilename,newDirectory,newFilename)
-                if excel.openWorkbook(filename): #If we need to open a new sheet, set it up
-                    if "XLSdata" in sc.sticky: 
-                        del sc.sticky["XLSdata"]
-                    excel.loadSheets()
-            else:
-                return False
-        else:
+    def OpenWorkbook(self, excel, useUserWorkbookDefault, oldFilename, newDirectory, newFilename):
+        
+        if not excel or not newFilename:
             return False
+        
+        filename = self.doCopy(oldFilename, newDirectory, newFilename)
+        
+        if excel.openWorkbook(filename): #If we need to open a new sheet, set it up
+            if "XLSdata" in sc.sticky: 
+                del sc.sticky["XLSdata"]
+            excel.loadSheets()
+        
         return True
-    def RunScript(self,run,visible,useUserWorkbook,oldFilename,newDirectory,newFilename):
+    
+    def RunScript(self, run, visible, useUserWorkbook, oldFilename, newDirectory, newFilename):
+        newFilename = self._clean_filename(newFilename)
+        
         if not run:
             self.StopExcel()
             ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, "Excel Not Started")
             return None
-        excel=self.StartExcel(useUserWorkbook)
+        excel = self.StartExcel(useUserWorkbook)
+        
         if excel==None:
             return None
+        
         if not useUserWorkbook:
             if visible==None:
                 visible=True
             excel.ex.Visible = visible
             excel.ex.ScreenUpdating = visible
+        
         if not excel:
             ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Error, "Excel Unable to Start")
             return None
+        
         if not (useUserWorkbook or oldFilename and newFilename):
             ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Warning, "Not running, either run is false or filename not set.")
             return None
-        #if useUserWorkbookDefault:
-            
-        #outputName=self.doCopy(oldFilename,newDirectory,newFilename)
-        #if not outputName and not useUserWorkbookDefault:
-        #    return (None,"Unable to copy file.")
-        if self.OpenWorkbook(excel,useUserWorkbook,oldFilename,newDirectory,newFilename):
+        
+        if self.OpenWorkbook(excel, useUserWorkbook, oldFilename, newDirectory, newFilename):
             return excel
+        
         ghenv.Component.AddRuntimeMessage(ghK.GH_RuntimeMessageLevel.Error, "Unable to open workbook")
         return None
+    
+    def _clean_filename(self, _filename):
+        if not _filename: 
+            return _filename
+        
+        return _filename.replace('\n', '').replace(' ', '').replace('xlsx', '').replace('xls', '').rstrip()
