@@ -1,18 +1,4 @@
-#
-# IDF2PHPP: A Plugin for exporting an EnergyPlus IDF file to the Passive House Planning Package (PHPP). Created by blgdtyp, llc
-# 
-# This component is part of IDF2PHPP.
-# 
-# Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
-# IDF2PHPP is free software; you can redistribute it and/or modify 
-# it under the terms of the GNU General Public License as published 
-# by the Free Software Foundation; either version 3 of the License, 
-# or (at your option) any later version. 
-# 
-# IDF2PHPP is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
-# GNU General Public License for more details.
+re details.
 # 
 # For a copy of the GNU General Public License
 # see <http://www.gnu.org/licenses/>.
@@ -22,7 +8,7 @@
 """
 Core Classes and Definitiions for IDF2PHPP Exporter. You must run this component before anything else will work. If you are having trouble when opening a GH file for the first time, try hitting 'Recompute'.
 -
-EM October 10, 2020
+EM December 5, 2020
 """
 
 print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com> 
@@ -37,7 +23,7 @@ print '''Copyright (c) 2020, bldgtyp, llc <info@bldgtyp.com>
 
 ghenv.Component.Name = "BT_CORE"
 ghenv.Component.NickName = "IDF2PHPP"
-ghenv.Component.Message = 'OCT_10_2020'
+ghenv.Component.Message = 'DEC_05_2020'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "BT"
 ghenv.Component.SubCategory = "00 | Core"
@@ -4170,6 +4156,12 @@ class IDF_Obj_Construction:
     """
     def __init__(self, _idfObj):
         self.Name = getattr(_idfObj, 'Name')
+        if not self.Name:
+            self.Name = getattr(_idfObj, 'name')
+        
+        if not self.Name:
+            self.Name = 'unnamed_construction_{}'.format(random.randint(1000,9999))
+        
         self.getLayerNames(_idfObj)
         self.checkInteriorInsul()
     
